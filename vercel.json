@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/price-alerts/check?secret=neLo2EGAjfm0bplv8DXVZFYa_ctaYKkXT_P8EN5CQy8",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
