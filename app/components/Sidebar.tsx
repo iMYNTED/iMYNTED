@@ -1,7 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+
 
 const nav = [
   { href: "/dashboard", label: "Dashboard" },
@@ -15,14 +17,28 @@ export default function Sidebar() {
 
   return (
     <aside className="w-64 border-r bg-background">
-      <div className="p-4">
-        <div className="text-lg font-semibold leading-tight">
-          My Sentinel Atlas
-        </div>
-        <div className="text-sm text-muted-foreground">
-          Unified Monitoring • Not a broker
-        </div>
+     <div className="p-4">
+  <div className="flex items-center gap-3">
+    <Image
+  src="/brand/sentinel-mark.png"
+  alt="My Sentinel Atlas"
+  width={32}
+  height={32}
+  className="shrink-0 object-contain"
+/>
+
+
+    <div className="leading-tight">
+      <div className="text-sm font-semibold tracking-tight">
+        My Sentinel Atlas
       </div>
+      <div className="text-xs text-muted-foreground">
+        Unified Monitoring • Not a broker
+      </div>
+    </div>
+  </div>
+</div>
+
 
       <nav className="px-2 pb-4">
         {nav.map((item) => {
