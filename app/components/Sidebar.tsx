@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -19,13 +18,14 @@ export default function Sidebar() {
     <aside className="w-64 border-r bg-background">
      <div className="p-4">
   <div className="flex items-center gap-3">
-    <Image
+    <img
   src="/brand/sentinel-mark.png"
   alt="My Sentinel Atlas"
-  width={32}
-  height={32}
-  className="shrink-0 object-contain"
+  width={56}
+  height={56}
+  className="object-contain"
 />
+
 
 
     <div className="leading-tight">
