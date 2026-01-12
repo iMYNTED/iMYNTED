@@ -4,11 +4,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import NewsFeed from "@/app/components/NewsFeed";
 import ScannerPanel from "@/app/components/ScannerPanel";
+import PositionsPanel from "@/app/components/PositionsPanel";
 import { MarketDepthPanel } from "@/app/components/MarketDepthPanel";
 import { TapePanel } from "@/app/components/TapePanel";
-
-// ✅ ADD THIS (adjust path/name if your component differs)
-import PositionsPanel from "@/app/components/PositionsPanel";
 
 type Workspace = "full" | "news" | "l2" | "tape" | "trader";
 
@@ -58,7 +56,7 @@ export default function DashboardPage() {
   );
   const cmdRef = useRef<HTMLInputElement | null>(null);
 
-  const activeSymbol = useMemo(() => (symbol || "AAPL").toUpperCase(), [symbol]);
+  const activeSymbol = useMemo(() => (symbol || "AAPL").toUpperCase().trim(), [symbol]);
 
   function applyCommand(raw: string) {
     const text = raw.trim();
@@ -68,14 +66,13 @@ export default function DashboardPage() {
     const a = parts[0]?.toLowerCase();
     const b = parts[1]?.toLowerCase();
 
-    // ticker shortcut: "AAPL"
-    if (isTicker(text.toUpperCase()) && parts.length === 1) {
-      setSymbol(text.toUpperCase());
-      setHud(`Symbol set: ${text.toUpperCase()}`);
+    const maybeTicker = text.toUpperCase();
+    if (isTicker(maybeTicker) && parts.length === 1) {
+      setSymbol(maybeTicker);
+      setHud(`Symbol set: ${maybeTicker}`);
       return;
     }
 
-    // ws <name>
     if (a === "ws" && b) {
       if (b === "full" || b === "news" || b === "l2" || b === "tape" || b === "trader") {
         setWorkspace(b);
@@ -86,7 +83,6 @@ export default function DashboardPage() {
       return;
     }
 
-    // toggles: news/l2/tape on/off
     if (a === "news" && b) {
       const on = b === "on";
       const off = b === "off";
@@ -125,13 +121,21 @@ export default function DashboardPage() {
     setHud(`Unknown command: ${text}`);
   }
 
-  // Keyboard shortcuts (F1..F5) + focus command bar with Ctrl+K
+  // Global hotkeys (don’t steal arrow keys from inputs)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const isTyping =
+        t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || (t as any)?.isContentEditable;
+
+      // Ctrl+K focuses command bar
       if (e.ctrlKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         cmdRef.current?.focus();
+        return;
       }
+
+      if (isTyping) return;
 
       if (e.key === "F1") {
         e.preventDefault();
@@ -153,7 +157,14 @@ export default function DashboardPage() {
         e.preventDefault();
         setWorkspace("trader");
       }
+
+      // "/" focuses command bar (Bloomberg-ish)
+      if (e.key === "/") {
+        e.preventDefault();
+        cmdRef.current?.focus();
+      }
     };
+
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -162,29 +173,32 @@ export default function DashboardPage() {
     <div className="h-[calc(100vh-12px)] p-3">
       {/* Top bar */}
       <div className="mb-3 flex items-center gap-2">
-        <div className="text-[13px] font-semibold text-white/80">
-          MySentinelAtlas • Dashboard
-        </div>
+        <div className="text-[13px] font-semibold text-white/80">MySentinelAtlas • Dashboard</div>
 
         <div className="ml-auto flex items-center gap-2">
-          <div className="hidden md:flex items-center gap-1 text-[11px] text-white/35">
+          <div className="hidden items-center gap-1 text-[11px] text-white/35 md:flex">
             <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1">F1</span>
             <span>FULL</span>
-            <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 ml-2">F2</span>
+            <span className="ml-2 rounded-md border border-white/10 bg-black/30 px-2 py-1">F2</span>
             <span>NEWS</span>
-            <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 ml-2">F3</span>
+            <span className="ml-2 rounded-md border border-white/10 bg-black/30 px-2 py-1">F3</span>
             <span>L2</span>
-            <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 ml-2">F4</span>
+            <span className="ml-2 rounded-md border border-white/10 bg-black/30 px-2 py-1">F4</span>
             <span>TAPE</span>
-            <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1 ml-2">F5</span>
+            <span className="ml-2 rounded-md border border-white/10 bg-black/30 px-2 py-1">F5</span>
             <span>TRADER</span>
           </div>
 
+          {/* ticker input */}
           <input
-            value={activeSymbol}
+            value={symbol}
             onChange={(e) => setSymbol(e.target.value.toUpperCase())}
             onKeyDown={(e) => {
-              if (e.key === "Enter") setSymbol((s) => (s || "AAPL").toUpperCase());
+              if (e.key === "Enter") {
+                const v = (symbol || "AAPL").toUpperCase().trim();
+                setSymbol(v);
+                setHud(`Symbol set: ${v}`);
+              }
             }}
             spellCheck={false}
             className="w-[110px] rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-[12px] font-semibold tracking-wider text-white/85 outline-none placeholder:text-white/30"
@@ -229,12 +243,11 @@ export default function DashboardPage() {
 
         <div className="col-span-12 lg:col-span-4">
           <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-[11px] text-white/45">
-            Toggles:{" "}
-            <span className="text-white/70">news {newsOn ? "on" : "off"}</span> •{" "}
+            Toggles: <span className="text-white/70">news {newsOn ? "on" : "off"}</span> •{" "}
             <span className="text-white/70">l2 {l2On ? "on" : "off"}</span> •{" "}
             <span className="text-white/70">tape {tapeOn ? "on" : "off"}</span> •{" "}
             <span className="text-white/70">ws {workspace}</span>
-            <div className="mt-1 text-white/35">Tip: Ctrl+K focuses the command bar.</div>
+            <div className="mt-1 text-white/35">Tip: Ctrl+K focuses the command bar. “/” also focuses it.</div>
           </div>
         </div>
       </div>
@@ -242,43 +255,48 @@ export default function DashboardPage() {
       {/* MAIN GRID */}
       <div className="h-[calc(100%-116px)] min-h-0 overflow-hidden">
         <div className="h-full min-h-0 grid grid-cols-12 gap-3">
-
           {/* LEFT */}
           <div
             className={cn(
-              "col-span-12 lg:col-span-4 h-full min-h-0 flex flex-col gap-3 overflow-hidden",
+              "col-span-12 lg:col-span-4 h-full min-h-0 overflow-hidden",
               workspace === "news" && "lg:col-span-12"
             )}
           >
-            {/* ✅ POSITIONS TOP */}
-            <Card title="Positions" className="h-[260px] min-h-0 overflow-hidden">
-              <div className="h-full min-h-0 overflow-auto p-3">
-                <PositionsPanel />
-              </div>
-            </Card>
-
-            {/* SCANNERS */}
-            <Card title="Scanners" className="flex-1 min-h-0 overflow-hidden">
-              <div className="min-h-0 overflow-auto p-3">
-                <ScannerPanel
-                  activeSymbol={activeSymbol}
-                  onPickSymbol={(s) => setSymbol(s)}
-                />
-              </div>
-            </Card>
-
-            {/* ✅ NEWS LAST */}
-            {newsOn && (
-              <Card
-                title="News"
-                className="h-[260px] min-h-0 overflow-hidden"
-                right={<span className="text-white/35">scroll inside</span>}
-              >
-                <div className="h-full min-h-0 overflow-hidden p-3">
-                  <NewsFeed symbol={activeSymbol} />
+            <div className="h-full min-h-0 grid grid-rows-[220px_minmax(720px,1fr)_180px] gap-3 overflow-hidden">
+              <Card title="Positions" className="min-h-0 overflow-hidden">
+                <div className="h-full min-h-0 overflow-y-auto p-3">
+                  <PositionsPanel />
                 </div>
               </Card>
-            )}
+
+              <Card title="Scanners" className="min-h-0 overflow-hidden">
+                <div className="h-full min-h-0 overflow-y-auto p-3">
+                  <ScannerPanel
+                    symbol={activeSymbol}
+                    onPickSymbol={(s: string) => {
+                      setSymbol(s);
+                      setHud(`Symbol set: ${s} (scanner)`);
+                    }}
+                  />
+                </div>
+              </Card>
+
+              <Card
+                title="News"
+                className="min-h-0 overflow-hidden"
+                right={<span className="text-white/35">{newsOn ? "live" : "off"}</span>}
+              >
+                <div className="h-full min-h-0 overflow-y-auto p-3">
+                  {newsOn ? (
+                    <NewsFeed symbol={activeSymbol} />
+                  ) : (
+                    <div className="text-[12px] text-white/45">
+                      News is off. Type <span className="font-semibold text-white/70">news on</span>.
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
           </div>
 
           {/* MIDDLE */}
@@ -290,26 +308,38 @@ export default function DashboardPage() {
               workspace === "news" && "hidden lg:flex"
             )}
           >
-            {l2On && (
+            {l2On ? (
               <Card
                 title="Level 2"
-                className={cn("flex-1 min-h-0 overflow-hidden")}
+                className="flex-1 min-h-0 overflow-hidden"
                 right={<span className="text-white/35">{activeSymbol}</span>}
               >
-                <div className="min-h-0 overflow-auto p-3">
+                <div className="h-full min-h-0 overflow-y-auto p-3">
                   <MarketDepthPanel symbol={activeSymbol} />
+                </div>
+              </Card>
+            ) : (
+              <Card title="Level 2" className="flex-1 min-h-0 overflow-hidden">
+                <div className="h-full min-h-0 p-3 text-[12px] text-white/45">
+                  Level 2 is off. Type <span className="font-semibold text-white/70">l2 on</span>.
                 </div>
               </Card>
             )}
 
-            {tapeOn && (
+            {tapeOn ? (
               <Card
                 title="Tape"
-                className="h-[320px] min-h-0 overflow-hidden"
+                className="h-[340px] min-h-0 overflow-hidden"
                 right={<span className="text-white/35">{activeSymbol}</span>}
               >
-                <div className="min-h-0 overflow-auto p-3">
+                <div className="h-full min-h-0 overflow-y-auto p-3">
                   <TapePanel symbol={activeSymbol} />
+                </div>
+              </Card>
+            ) : (
+              <Card title="Tape" className="h-[340px] min-h-0 overflow-hidden">
+                <div className="h-full min-h-0 p-3 text-[12px] text-white/45">
+                  Tape is off. Type <span className="font-semibold text-white/70">tape on</span>.
                 </div>
               </Card>
             )}
@@ -324,14 +354,11 @@ export default function DashboardPage() {
             )}
           >
             <Card title="Trader" className="h-full min-h-0 overflow-hidden">
-              <div className="h-full min-h-0 overflow-auto p-3">
+              <div className="h-full min-h-0 overflow-y-auto p-3">
                 <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-                  <div className="text-[12px] font-semibold text-white/80">
-                    Command Center (placeholder)
-                  </div>
+                  <div className="text-[12px] font-semibold text-white/80">Command Center (placeholder)</div>
                   <div className="mt-2 text-[11px] text-white/50">
-                    Active Symbol:{" "}
-                    <span className="font-semibold text-white/80">{activeSymbol}</span>
+                    Active Symbol: <span className="font-semibold text-white/80">{activeSymbol}</span>
                   </div>
 
                   <div className="mt-3 grid grid-cols-2 gap-2">
@@ -361,14 +388,11 @@ export default function DashboardPage() {
                     </button>
                   </div>
 
-                  <div className="mt-3 text-[10px] text-white/35">
-                    Tip: Ctrl+K focuses the command bar.
-                  </div>
+                  <div className="mt-3 text-[10px] text-white/35">Tip: Ctrl+K focuses the command bar.</div>
                 </div>
               </div>
             </Card>
           </div>
-
         </div>
       </div>
     </div>

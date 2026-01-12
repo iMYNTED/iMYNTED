@@ -1,93 +1,83 @@
 import { NextResponse } from "next/server";
 
-type ScannerRow = {
+type ScannerType = "gainers" | "losers" | "unusual" | "news" | "halts";
+
+type ScanRow = {
   symbol: string;
-  name?: string;
   price: number;
-  change: number;
-  changePct: number;
-  volume: number;
-  tag: "Gainer" | "Loser" | "Unusual Vol" | "News Spike";
+  chg: number;
+  vol: number;
+  relVol: number;
+  lastTs: string;
+  type: ScannerType;
 };
 
+function nowIso() {
+  return new Date().toISOString();
+}
+
+const UNIVERSE = [
+  "AAPL","MSFT","NVDA","TSLA","AMD","META","AMZN","GOOGL","NFLX",
+  "PLTR","SOFI","RIVN","LCID","MARA","RIOT","NIO","COIN","HOOD",
+  "GME","AMC","SPY","QQQ","IWM","SMCI","INTC","BABA","UBER","LYFT",
+  "F","GM","BAC","JPM","XOM","CVX","DIS","DKNG","MRNA","PFE","CVNA",
+  "UPST","AI","SOUN","IONQ","SHOP","SNAP","BYND","T","VZ","KVUE",
+];
+
 function rand(min: number, max: number) {
-  return Math.random() * (max - min) + min;
+  return min + Math.random() * (max - min);
 }
 
-function fmtVol(v: number) {
-  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(2)}B`;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(2)}K`;
-  return String(Math.floor(v));
+function pick<T>(xs: T[]) {
+  return xs[Math.floor(Math.random() * xs.length)];
 }
 
-function genMockRows(tag: ScannerRow["tag"], symbols: string[]): ScannerRow[] {
-  return symbols.slice(0, 10).map((s) => {
-    const price = Number(rand(2, 350).toFixed(2));
-    const changePct =
-      tag === "Loser"
-        ? Number(rand(-22, -1).toFixed(2))
-        : Number(rand(1, 18).toFixed(2));
-    const change = Number(((price * changePct) / 100).toFixed(2));
-    const volume = Math.floor(rand(100_000, 120_000_000));
+function normalizeType(v: string | null): ScannerType {
+  const t = (v || "").toLowerCase().trim();
+  if (t === "gainers" || t === "losers" || t === "unusual" || t === "news" || t === "halts")
+    return t;
+  return "gainers";
+}
 
-    return {
-      symbol: s,
-      price,
-      change,
-      changePct,
-      volume,
-      tag,
-    };
-  });
+function makeRow(type: ScannerType): ScanRow {
+  const symbol = pick(UNIVERSE);
+  const base = rand(0.5, 250);
+
+  const chg =
+    type === "gainers" ? rand(1.5, 18)
+    : type === "losers" ? rand(-18, -1.5)
+    : type === "unusual" ? rand(-6, 10)
+    : type === "news" ? rand(-8, 14)
+    : rand(-2, 2);
+
+  const price = Math.max(0.05, base * (1 + chg / 100));
+
+  const vol =
+    type === "unusual"
+      ? Math.floor(rand(2_000_000, 80_000_000))
+      : Math.floor(rand(50_000, 15_000_000));
+
+  const relVol =
+    type === "unusual" ? rand(2.0, 15.0)
+    : type === "news" ? rand(1.2, 6.0)
+    : rand(0.6, 3.0);
+
+  return { symbol, price, chg, vol, relVol, lastTs: nowIso(), type };
 }
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const type = (url.searchParams.get("type") || "gainers").toLowerCase();
+  const { searchParams } = new URL(req.url);
 
-  // MOCK symbol pools (fast + terminal feel). We'll swap to real providers later.
-  const pools = {
-    gainers: ["NVDA", "TSLA", "AMD", "SOFI", "PLTR", "SMCI", "MARA", "RIOT", "AAPL", "META", "MSFT"],
-    losers: ["BABA", "NIO", "SNAP", "PYPL", "UBER", "F", "RIVN", "COIN", "SQ", "DIS", "BA"],
-    unusual: ["SPY", "QQQ", "IWM", "TSLA", "NVDA", "AAPL", "AMD", "META", "MSFT", "AVGO", "NFLX"],
-    newspike: ["AAPL", "TSLA", "NVDA", "AMD", "META", "MSFT", "PLTR", "SOFI", "SMCI", "MARA", "COIN"],
-  };
+  const type = normalizeType(searchParams.get("type"));
+  const limit = Math.min(Number(searchParams.get("limit") || "120"), 300);
 
-  let tag: ScannerRow["tag"] = "Gainer";
-  let rows: ScannerRow[] = [];
+  const rows: ScanRow[] = [];
+  for (let i = 0; i < limit; i++) rows.push(makeRow(type));
 
-  if (type === "losers") {
-    tag = "Loser";
-    rows = genMockRows(tag, pools.losers);
-  } else if (type === "unusual") {
-    tag = "Unusual Vol";
-    rows = genMockRows(tag, pools.unusual).map((r) => ({
-      ...r,
-      changePct: Number(rand(-6, 6).toFixed(2)),
-      change: Number(((r.price * rand(-6, 6)) / 100).toFixed(2)),
-      volume: Math.floor(rand(40_000_000, 250_000_000)),
-    }));
-  } else if (type === "newspike") {
-    tag = "News Spike";
-    rows = genMockRows(tag, pools.newspike).map((r) => ({
-      ...r,
-      changePct: Number(rand(-4, 10).toFixed(2)),
-      change: Number(((r.price * rand(-4, 10)) / 100).toFixed(2)),
-      volume: Math.floor(rand(2_000_000, 150_000_000)),
-    }));
-  } else {
-    tag = "Gainer";
-    rows = genMockRows(tag, pools.gainers);
-  }
-
-  return NextResponse.json({
-    provider: "mock",
-    type,
-    rows: rows.map((r) => ({
-      ...r,
-      volumeLabel: fmtVol(r.volume),
-    })),
-    ts: new Date().toISOString(),
+  rows.sort((a, b) => {
+    if (type === "unusual") return (b.relVol || 0) - (a.relVol || 0);
+    return (b.chg || 0) - (a.chg || 0);
   });
+
+  return NextResponse.json({ rows, type });
 }

@@ -2,431 +2,314 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-type DepthLevel = { px: number; sz: number };
+type LevelRow = { px: number; sz: number };
+type Depth = { symbol: string; ts: string; bids: LevelRow[]; asks: LevelRow[] };
 
-type DepthResponse = {
-  symbol: string;
-  bids: DepthLevel[];
-  asks: DepthLevel[];
-  source?: string;
-  ts?: string;
-};
-
-function fmtPx(v: number | null | undefined) {
-  if (typeof v !== "number" || !Number.isFinite(v)) return "—";
-  return v.toFixed(2);
+function cn(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
 }
 
-function fmtSz(v: number | null | undefined) {
-  if (typeof v !== "number" || !Number.isFinite(v)) return "—";
-  return v.toLocaleString();
+function fmtPx(v: number) {
+  return Number(v).toFixed(2);
 }
 
-function sumTop(levels: DepthLevel[], n: number) {
-  return levels.slice(0, n).reduce((acc, l) => acc + (l?.sz ?? 0), 0);
+function fmtSz(v: number) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "0";
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(2) + "K";
+  return String(Math.round(n));
 }
 
-function clamp(v: number, lo = 0, hi = 1) {
-  return Math.max(lo, Math.min(hi, v));
+function clamp01(x: number) {
+  return Math.max(0, Math.min(1, x));
 }
 
-function computeWalls(levels: DepthLevel[], topN: number) {
-  const slice = levels.slice(0, topN);
-  if (!slice.length) return { threshold: Infinity, wallSet: new Set<string>() };
+function stableMidForSymbol(symbol: string) {
+  // deterministic per symbol, so SSR/CSR match at first paint
+  let h = 0;
+  for (let i = 0; i < symbol.length; i++) h = (h * 31 + symbol.charCodeAt(i)) >>> 0;
+  const base = 120 + (h % 180); // 120..299
+  const cents = (h % 100) / 100;
+  return +(base + cents).toFixed(2);
+}
 
-  const sizes = slice.map((l) => l.sz);
-  const max = Math.max(...sizes);
+function buildInitial(symbol: string): Depth {
+  const mid = stableMidForSymbol(symbol);
+  const bids = Array.from({ length: 20 }).map((_, i) => ({
+    px: +(mid - (i + 1) * 0.01).toFixed(2),
+    sz: 250 + i * 35,
+  }));
+  const asks = Array.from({ length: 20 }).map((_, i) => ({
+    px: +(mid + (i + 1) * 0.01).toFixed(2),
+    sz: 250 + i * 35,
+  }));
+  // ts fixed so SSR/CSR match
+  return { symbol, ts: "1970-01-01T00:00:00.000Z", bids, asks };
+}
 
-  const threshold = Math.max(5000, Math.floor(max * 0.65));
+function normalizeDepth(symbol: string, raw: any): Depth | null {
+  const d = raw?.depth || raw;
+  if (!d) return null;
 
-  const wallSet = new Set<string>();
-  for (const l of slice) {
-    if (l.sz >= threshold) wallSet.add(`${l.px}|${l.sz}`);
+  const bids: any[] = Array.isArray(d.bids) ? d.bids : [];
+  const asks: any[] = Array.isArray(d.asks) ? d.asks : [];
+  if (!bids.length || !asks.length) return null;
+
+  const clean = (rows: any[]) =>
+    rows
+      .slice(0, 20)
+      .map((r) => ({ px: Number(r.px), sz: Number(r.sz) }))
+      .filter((r) => Number.isFinite(r.px) && Number.isFinite(r.sz));
+
+  const cb = clean(bids);
+  const ca = clean(asks);
+  if (!cb.length || !ca.length) return null;
+
+  return {
+    symbol,
+    ts: typeof d.ts === "string" ? d.ts : new Date().toISOString(),
+    bids: cb,
+    asks: ca,
+  };
+}
+
+export function MarketDepthPanel(props: { symbol?: string; activeSymbol?: string }) {
+  const symbol = useMemo(
+    () => (props.activeSymbol || props.symbol || "AAPL").toUpperCase().trim(),
+    [props.activeSymbol, props.symbol]
+  );
+
+  const [depth, setDepth] = useState<Depth>(() => buildInitial(symbol));
+  const [flash, setFlash] = useState<Record<string, "up" | "down">>({});
+  const flashTimer = useRef<any>(null);
+
+  // reset when symbol changes
+  useEffect(() => {
+    setDepth(buildInitial(symbol));
+    setFlash({});
+  }, [symbol]);
+
+  function setFlashBurst(updates: Record<string, "up" | "down">) {
+    if (!Object.keys(updates).length) return;
+
+    setFlash((f) => ({ ...f, ...updates }));
+
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => {
+      setFlash({});
+    }, 250);
   }
 
-  return { threshold, wallSet };
-}
+  // Poll API; if empty/error -> simulate (Bloomberg vibe)
+  useEffect(() => {
+    let alive = true;
 
-function weightedMid(bids: DepthLevel[], asks: DepthLevel[], topN: number) {
-  const b = bids.slice(0, topN);
-  const a = asks.slice(0, topN);
-  if (!b.length || !a.length) return null;
+    function simulateTick() {
+      setDepth((cur) => {
+        const mid =
+          (cur.bids[0]?.px + cur.asks[0]?.px) / 2 ||
+          stableMidForSymbol(symbol);
 
-  const bidPx = b.reduce((acc, l) => acc + l.px * l.sz, 0);
-  const bidSz = b.reduce((acc, l) => acc + l.sz, 0);
+        // deterministic “wobble”: based on current timestamp seconds (client only)
+        const s = new Date().getSeconds();
+        const wobble = (s % 2 === 0 ? 1 : -1) * 0.01;
+        const newMid = +(mid + wobble).toFixed(2);
 
-  const askPx = a.reduce((acc, l) => acc + l.px * l.sz, 0);
-  const askSz = a.reduce((acc, l) => acc + l.sz, 0);
+        const bids = cur.bids.map((r, i) => ({
+          px: +(newMid - (i + 1) * 0.01).toFixed(2),
+          sz: Math.max(10, Math.round(r.sz + ((i % 2 === 0 ? 1 : -1) * 18))),
+        }));
 
-  if (bidSz === 0 || askSz === 0) return null;
+        const asks = cur.asks.map((r, i) => ({
+          px: +(newMid + (i + 1) * 0.01).toFixed(2),
+          sz: Math.max(10, Math.round(r.sz + ((i % 3 === 0 ? 1 : -1) * 14))),
+        }));
 
-  const wBid = bidPx / bidSz;
-  const wAsk = askPx / askSz;
+        const updates: Record<string, "up" | "down"> = {};
+        for (let i = 0; i < 20; i++) {
+          const db = bids[i].sz - cur.bids[i].sz;
+          const da = asks[i].sz - cur.asks[i].sz;
+          if (db !== 0) updates[`b-${i}`] = db > 0 ? "up" : "down";
+          if (da !== 0) updates[`a-${i}`] = da > 0 ? "up" : "down";
+        }
+        setFlashBurst(updates);
 
-  return (wBid + wAsk) / 2;
-}
-
-function inferTickSize(bids: DepthLevel[], asks: DepthLevel[]) {
-  const prices = [
-    ...bids.slice(0, 8).map((l) => l.px),
-    ...asks.slice(0, 8).map((l) => l.px),
-  ]
-    .filter((p) => Number.isFinite(p))
-    .sort((a, b) => a - b);
-
-  let min = Infinity;
-  for (let i = 1; i < prices.length; i++) {
-    const d = prices[i] - prices[i - 1];
-    if (d > 0 && d < min) min = d;
-  }
-
-  if (!Number.isFinite(min) || min <= 0) return 0.01;
-
-  const common = [0.01, 0.05, 0.1, 0.25, 0.5, 1];
-  let best = common[0];
-  let bestErr = Math.abs(min - best);
-  for (const c of common) {
-    const e = Math.abs(min - c);
-    if (e < bestErr) {
-      bestErr = e;
-      best = c;
+        return { symbol, ts: new Date().toISOString(), bids, asks };
+      });
     }
-  }
-  return bestErr <= 0.002 ? best : min;
-}
 
-function useTweenNumber(target: number, ms = 320) {
-  const [val, setVal] = useState(target);
-  const fromRef = useRef(target);
-  const rafRef = useRef<number | null>(null);
+    async function poll() {
+      if (!alive) return;
 
-  useEffect(() => {
-    const start = performance.now();
-    const from = fromRef.current;
-    const to = target;
-
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-
-    const tick = (t: number) => {
-      const p = clamp((t - start) / ms, 0, 1);
-      // easeOutCubic
-      const eased = 1 - Math.pow(1 - p, 3);
-      const next = from + (to - from) * eased;
-      setVal(next);
-      if (p < 1) rafRef.current = requestAnimationFrame(tick);
-      else fromRef.current = to;
-    };
-
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [target, ms]);
-
-  return val;
-}
-
-export function MarketDepthPanel({ symbol }: { symbol: string }) {
-  const [data, setData] = useState<DepthResponse | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function run() {
-      setErr(null);
       try {
-        const res = await fetch(
-          `/api/market/depth?symbol=${encodeURIComponent(symbol)}`,
-          { cache: "no-store" }
-        );
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = (await res.json()) as DepthResponse;
-        if (!cancelled) setData(json);
-      } catch (e: any) {
-        if (!cancelled) setErr(e?.message ?? "Failed to load depth");
+        const r = await fetch(`/api/market/depth?symbol=${encodeURIComponent(symbol)}`, {
+          cache: "no-store",
+        });
+        const j = await r.json().catch(() => null);
+        if (!alive) return;
+
+        const norm = normalizeDepth(symbol, j);
+        if (norm) {
+          setDepth((prev) => {
+            const updates: Record<string, "up" | "down"> = {};
+            for (let i = 0; i < 20; i++) {
+              const pb = prev.bids[i];
+              const nb = norm.bids[i];
+              const pa = prev.asks[i];
+              const na = norm.asks[i];
+              if (pb && nb && nb.sz !== pb.sz) updates[`b-${i}`] = nb.sz > pb.sz ? "up" : "down";
+              if (pa && na && na.sz !== pa.sz) updates[`a-${i}`] = na.sz > pa.sz ? "up" : "down";
+            }
+            setFlashBurst(updates);
+            return norm;
+          });
+        } else {
+          simulateTick();
+        }
+      } catch {
+        if (!alive) return;
+        simulateTick();
+      } finally {
+        if (!alive) return;
+        setTimeout(poll, 900);
       }
     }
 
-    run();
-    const t = setInterval(run, 2500);
+    poll();
     return () => {
-      cancelled = true;
-      clearInterval(t);
+      alive = false;
+      if (flashTimer.current) clearTimeout(flashTimer.current);
     };
   }, [symbol]);
 
-  const bids = useMemo(() => (data?.bids ?? []).slice(0, 12), [data]);
-  const asks = useMemo(() => (data?.asks ?? []).slice(0, 12), [data]);
+  const bestBid = depth.bids[0]?.px ?? 0;
+  const bestAsk = depth.asks[0]?.px ?? 0;
+  const spread = bestAsk && bestBid ? +(bestAsk - bestBid).toFixed(2) : 0;
 
-  const tick = useMemo(() => inferTickSize(bids, asks), [bids, asks]);
+  const maxBid = useMemo(() => Math.max(1, ...depth.bids.map((r) => r.sz)), [depth]);
+  const maxAsk = useMemo(() => Math.max(1, ...depth.asks.map((r) => r.sz)), [depth]);
 
-  const bestBid = useMemo(() => {
-    if (!bids.length) return null;
-    return bids.reduce((a, b) => (b.px > a.px ? b : a), bids[0]);
-  }, [bids]);
-
-  const bestAsk = useMemo(() => {
-    if (!asks.length) return null;
-    return asks.reduce((a, b) => (b.px < a.px ? b : a), asks[0]);
-  }, [asks]);
-
-  const mid = useMemo(() => {
-    if (!bestBid || !bestAsk) return null;
-    return (bestBid.px + bestAsk.px) / 2;
-  }, [bestBid, bestAsk]);
-
-  const spread = useMemo(() => {
-    if (!bestBid || !bestAsk) return null;
-    const abs = bestAsk.px - bestBid.px;
-    const pct = mid ? (abs / mid) * 100 : null;
-    const ticks = tick > 0 ? abs / tick : null;
-    return { abs, pct, ticks };
-  }, [bestBid, bestAsk, mid, tick]);
-
-  const topN = 5;
-
-  const imbalance = useMemo(() => {
-    const bidTop = sumTop(bids, topN);
-    const askTop = sumTop(asks, topN);
-    const total = bidTop + askTop;
-    if (total === 0) return null;
-
-    const bidPct = (bidTop / total) * 100;
-    const askPct = (askTop / total) * 100;
-    const net = bidPct - askPct;
-    return { bidTop, askTop, bidPct, askPct, net };
-  }, [bids, asks]);
-
-  const walls = useMemo(() => {
-    const bidWalls = computeWalls(bids, topN);
-    const askWalls = computeWalls(asks, topN);
-    return { bidWalls, askWalls };
-  }, [bids, asks]);
-
-  const wMid = useMemo(() => weightedMid(bids, asks, topN), [bids, asks]);
-
-  const nearTouchDepth = 2;
-
-  const bidNearWalls = useMemo(() => {
-    let c = 0;
-    const set = new Set(bids.slice(0, nearTouchDepth).map((l) => `${l.px}|${l.sz}`));
-    bids.slice(0, nearTouchDepth).forEach((l) => {
-      if (walls.bidWalls.wallSet.has(`${l.px}|${l.sz}`) && set.has(`${l.px}|${l.sz}`)) c++;
-    });
-    return c;
-  }, [bids, walls.bidWalls.wallSet]);
-
-  const askNearWalls = useMemo(() => {
-    let c = 0;
-    const set = new Set(asks.slice(0, nearTouchDepth).map((l) => `${l.px}|${l.sz}`));
-    asks.slice(0, nearTouchDepth).forEach((l) => {
-      if (walls.askWalls.wallSet.has(`${l.px}|${l.sz}`) && set.has(`${l.px}|${l.sz}`)) c++;
-    });
-    return c;
-  }, [asks, walls.askWalls.wallSet]);
-
-  const pressure = useMemo(() => {
-    if (!spread || mid == null) return null;
-
-    const spreadTicks = spread.ticks ?? (spread.abs / tick);
-    const tight = 1 - clamp((spreadTicks - 1) / 5);
-
-    const imb = imbalance ? clamp(imbalance.net / 50, -1, 1) : 0;
-    const near = clamp((bidNearWalls - askNearWalls) / 2, -1, 1);
-    const skew = wMid == null ? 0 : clamp((wMid - mid) / (tick * 4), -1, 1);
-
-    const dir = clamp(0.55 * imb + 0.25 * near + 0.20 * skew, -1, 1);
-    const strength = clamp(0.55 * tight + 0.45 * Math.abs(dir), 0, 1);
-
-    const buy = Math.round(clamp(dir, 0, 1) * 100 * strength);
-    const sell = Math.round(clamp(-dir, 0, 1) * 100 * strength);
-
-    const label = buy >= 60 ? "BUY PRESSURE" : sell >= 60 ? "SELL PRESSURE" : "NEUTRAL";
-
-    return { buy, sell, label, strength, tight, spreadTicks };
-  }, [spread, mid, tick, imbalance, bidNearWalls, askNearWalls, wMid]);
-
-  // animated values
-  const buyAnim = useTweenNumber(pressure?.buy ?? 0, 360);
-  const sellAnim = useTweenNumber(pressure?.sell ?? 0, 360);
-  const strengthAnim = useTweenNumber(Math.round((pressure?.strength ?? 0) * 100), 360);
-  const tightAnim = useTweenNumber(Math.round((pressure?.tight ?? 0) * 100), 360);
-
-  if (err) {
-    return (
-      <div className="rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-red-300">
-        Depth error: {err}
-      </div>
-    );
-  }
+  const flashCls = (key: string, side: "b" | "a") => {
+    const v = flash[key];
+    if (!v) return "";
+    if (side === "b") return v === "up" ? "bg-emerald-500/25" : "bg-emerald-500/15";
+    return v === "up" ? "bg-rose-500/15" : "bg-rose-500/25";
+  };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-[11px] text-white/40">
+    <div className="h-full min-h-0">
+      <div className="mb-2 flex items-center justify-between text-[11px] text-white/45">
         <div>
-          Market Depth (Level 2) • <span className="text-white/70">{symbol}</span>
-          {data?.source ? ` • Source: ${data.source}` : ""}
+          <span className="text-white/80 font-semibold">{symbol}</span>{" "}
+          <span className="text-white/35">•</span>{" "}
+          <span className="tabular-nums text-white/60">
+            bid {bestBid ? fmtPx(bestBid) : "--"} / ask {bestAsk ? fmtPx(bestAsk) : "--"} / spr{" "}
+            {spread ? spread.toFixed(2) : "--"}
+          </span>
         </div>
-        <div className="text-white/30">
-          {data?.ts ? new Date(data.ts).toLocaleTimeString() : ""}
+        <div className="tabular-nums text-white/35">
+          {depth.ts && depth.ts !== "1970-01-01T00:00:00.000Z"
+            ? new Date(depth.ts).toLocaleTimeString()
+            : ""}
         </div>
       </div>
 
-      {/* Top stats */}
-      <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-3 space-y-3">
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-            <div className="text-[10px] text-white/40">BEST BID</div>
-            <div className="mt-1 flex items-baseline justify-between">
-              <div className="text-lg font-semibold tabular-nums text-emerald-300">
-                {fmtPx(bestBid?.px)}
-              </div>
-              <div className="text-[11px] tabular-nums text-white/50">
-                {fmtSz(bestBid?.sz)}
-              </div>
+      <div className="rounded-xl border border-white/10 bg-black/40 overflow-hidden">
+        {/* Header */}
+        <div className="grid grid-cols-12 border-b border-white/10 text-[11px]">
+          <div className="col-span-5 px-3 py-2 text-white/70 font-semibold">Bids</div>
+          <div className="col-span-2 px-2 py-2 text-center text-white/60 font-semibold">
+            Spread
+          </div>
+          <div className="col-span-5 px-3 py-2 text-white/70 font-semibold">Asks</div>
+        </div>
+
+        {/* 3-column ladder */}
+        <div className="max-h-[560px] overflow-y-auto">
+          {/* subheaders */}
+          <div className="grid grid-cols-12 sticky top-0 z-10 bg-black/70 text-[10px] text-white/45 border-b border-white/10">
+            <div className="col-span-5 grid grid-cols-3 px-3 py-1">
+              <div>Px</div>
+              <div className="text-right">Sz</div>
+              <div className="text-right">Depth</div>
             </div>
-            <div className="mt-1 text-[10px] text-white/35">
-              Walls:{" "}
-              <span className="text-white/55 tabular-nums">
-                {walls.bidWalls.wallSet.size}
-              </span>{" "}
-              • ≥{" "}
-              <span className="text-white/55 tabular-nums">
-                {Number.isFinite(walls.bidWalls.threshold)
-                  ? fmtSz(walls.bidWalls.threshold)
-                  : "—"}
-              </span>{" "}
-              • Near: <span className="text-white/55 tabular-nums">{bidNearWalls}</span>
+            <div className="col-span-2 px-2 py-1 text-center">Spr</div>
+            <div className="col-span-5 grid grid-cols-3 px-3 py-1">
+              <div>Px</div>
+              <div className="text-right">Sz</div>
+              <div className="text-right">Depth</div>
             </div>
           </div>
 
-          <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-            <div className="text-[10px] text-white/40">SPREAD</div>
-            <div className="mt-1 flex items-baseline justify-between">
-              <div className="text-lg font-semibold tabular-nums text-white/80">
-                {fmtPx(spread?.abs)}
-              </div>
-              <div className="text-[11px] tabular-nums text-white/50">
-                {typeof spread?.pct === "number" ? `${spread.pct.toFixed(3)}%` : ""}
-              </div>
-            </div>
+          {Array.from({ length: 20 }).map((_, i) => {
+            const b = depth.bids[i];
+            const a = depth.asks[i];
+            const bw = b ? clamp01(b.sz / maxBid) * 100 : 0;
+            const aw = a ? clamp01(a.sz / maxAsk) * 100 : 0;
+            const rowSpread = a && b ? +(a.px - b.px).toFixed(2) : spread;
 
-            <div className="mt-1 grid grid-cols-2 gap-2 text-[10px] text-white/35">
-              <div>
-                Mid: <span className="tabular-nums text-white/60">{fmtPx(mid)}</span>
-              </div>
-              <div>
-                WMid(5):{" "}
-                <span className="tabular-nums text-white/60">{fmtPx(wMid)}</span>
-              </div>
-              <div>
-                Tick: <span className="tabular-nums text-white/60">{tick.toFixed(2)}</span>
-              </div>
-              <div>
-                Spread:{" "}
-                <span className="tabular-nums text-white/60">
-                  {typeof spread?.ticks === "number" ? `${spread.ticks.toFixed(1)}t` : "—"}
-                </span>
-              </div>
-              <div>
-                Imb(5):{" "}
-                <span
-                  className={[
-                    "tabular-nums font-semibold",
-                    (imbalance?.net ?? 0) >= 0 ? "text-emerald-300" : "text-red-300",
-                  ].join(" ")}
+            return (
+              <div key={`row-${i}`} className="grid grid-cols-12 border-b border-white/5 text-[12px]">
+                {/* BIDS */}
+                <div
+                  className={cn(
+                    "col-span-5 relative grid grid-cols-3 items-center px-3 py-1 transition-colors",
+                    flashCls(`b-${i}`, "b")
+                  )}
                 >
-                  {imbalance ? `${imbalance.net.toFixed(1)}%` : "—"}
-                </span>
-              </div>
-              <div className="tabular-nums text-white/45">
-                {imbalance ? `${imbalance.bidPct.toFixed(1)} / ${imbalance.askPct.toFixed(1)}` : ""}
-              </div>
-            </div>
-          </div>
+                  <div
+                    className="absolute inset-y-0 left-0 z-0 bg-emerald-500/10 transition-[width] duration-300 ease-out"
+                    style={{ width: `${bw}%` }}
+                  />
+                  <div className="relative z-10 tabular-nums text-emerald-300">
+                    {b ? fmtPx(b.px) : "--"}
+                  </div>
+                  <div className="relative z-10 text-right tabular-nums text-white/75">
+                    {b ? fmtSz(b.sz) : "--"}
+                  </div>
+                  <div className="relative z-10 text-right tabular-nums text-white/45">
+                    {b ? `${Math.round(bw)}%` : ""}
+                  </div>
+                </div>
 
-          <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-            <div className="text-[10px] text-white/40">BEST ASK</div>
-            <div className="mt-1 flex items-baseline justify-between">
-              <div className="text-lg font-semibold tabular-nums text-red-300">
-                {fmtPx(bestAsk?.px)}
+                {/* SPREAD */}
+                <div className="col-span-2 px-2 py-1 flex items-center justify-center">
+                  <div className="rounded-lg border border-white/10 bg-black/40 px-2 py-[2px] text-[11px] tabular-nums text-white/70">
+                    {Number.isFinite(rowSpread) ? rowSpread.toFixed(2) : "--"}
+                  </div>
+                </div>
+
+                {/* ASKS */}
+                <div
+                  className={cn(
+                    "col-span-5 relative grid grid-cols-3 items-center px-3 py-1 transition-colors",
+                    flashCls(`a-${i}`, "a")
+                  )}
+                >
+                  <div
+                    className="absolute inset-y-0 left-0 z-0 bg-rose-500/10 transition-[width] duration-300 ease-out"
+                    style={{ width: `${aw}%` }}
+                  />
+                  <div className="relative z-10 tabular-nums text-rose-300">
+                    {a ? fmtPx(a.px) : "--"}
+                  </div>
+                  <div className="relative z-10 text-right tabular-nums text-white/75">
+                    {a ? fmtSz(a.sz) : "--"}
+                  </div>
+                  <div className="relative z-10 text-right tabular-nums text-white/45">
+                    {a ? `${Math.round(aw)}%` : ""}
+                  </div>
+                </div>
               </div>
-              <div className="text-[11px] tabular-nums text-white/50">
-                {fmtSz(bestAsk?.sz)}
-              </div>
-            </div>
-            <div className="mt-1 text-[10px] text-white/35">
-              Walls:{" "}
-              <span className="text-white/55 tabular-nums">
-                {walls.askWalls.wallSet.size}
-              </span>{" "}
-              • ≥{" "}
-              <span className="text-white/55 tabular-nums">
-                {Number.isFinite(walls.askWalls.threshold)
-                  ? fmtSz(walls.askWalls.threshold)
-                  : "—"}
-              </span>{" "}
-              • Near: <span className="text-white/55 tabular-nums">{askNearWalls}</span>
-            </div>
-          </div>
+            );
+          })}
         </div>
 
-        {/* Animated BUY/SELL meters */}
-        <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-          <div className="flex items-center justify-between">
-            <div className="text-[11px] font-semibold text-white/70">PRESSURE METERS</div>
-            <div className="text-[11px] text-white/40">{pressure ? pressure.label : "—"}</div>
-          </div>
-
-          <div className="mt-2 grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-white/10 bg-black/50 p-3">
-              <div className="flex items-baseline justify-between">
-                <div className="text-[11px] font-semibold text-white/60">BUY</div>
-                <div className="text-lg font-bold tabular-nums text-emerald-300">
-                  {Math.round(buyAnim)}
-                </div>
-              </div>
-              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full bg-emerald-400/40 transition-[width] duration-300 ease-out"
-                  style={{ width: `${Math.round(buyAnim)}%` }}
-                />
-              </div>
-              <div className="mt-1 text-[10px] text-white/35">
-                strength{" "}
-                <span className="tabular-nums text-white/55">{Math.round(strengthAnim)}%</span>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-white/10 bg-black/50 p-3">
-              <div className="flex items-baseline justify-between">
-                <div className="text-[11px] font-semibold text-white/60">SELL</div>
-                <div className="text-lg font-bold tabular-nums text-red-300">
-                  {Math.round(sellAnim)}
-                </div>
-              </div>
-              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full bg-red-400/40 transition-[width] duration-300 ease-out"
-                  style={{ width: `${Math.round(sellAnim)}%` }}
-                />
-              </div>
-              <div className="mt-1 text-[10px] text-white/35">
-                tight{" "}
-                <span className="tabular-nums text-white/55">{Math.round(tightAnim)}%</span>
-                {" • "}
-                spread{" "}
-                <span className="tabular-nums text-white/55">
-                  {pressure ? pressure.spreadTicks.toFixed(1) : "—"}t
-                </span>
-              </div>
-            </div>
-          </div>
+        <div className="border-t border-white/10 px-3 py-2 text-[10px] text-white/40">
+          Bloomberg ladder: Bids | Spread | Asks • flashes on size change • bars animate on updates
         </div>
       </div>
-
-      {/* NOTE: leaving your tables as-is (you already liked them) */}
     </div>
   );
 }
