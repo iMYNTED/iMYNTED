@@ -16,28 +16,17 @@ export default function Sidebar() {
 
   return (
     <aside className="w-64 border-r bg-background">
-     <div className="p-4">
-  <div className="flex items-center gap-3">
-    <img
-  src="/brand/sentinel-mark.png"
-  alt="My Sentinel Atlas"
-  width={56}
-  height={56}
-  className="object-contain"
-/>
-
-
-
-    <div className="leading-tight">
-      <div className="text-sm font-semibold tracking-tight">
-        My Sentinel Atlas
-      </div>
-      <div className="text-xs text-muted-foreground">
-        Unified Monitoring • Not a broker
-      </div>
-    </div>
-  </div>
+     <div className="mx-4 mb-2 border-b opacity-50" />
+     <div className="p-4 flex justify-center">
+  <img
+    src="/brand/sentinel-mark.png"
+    alt="My Sentinel Atlas"
+    width={300}
+    height={300}
+    className="object-contain"
+  />
 </div>
+
 
 
       <nav className="px-2 pb-4">

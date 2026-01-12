@@ -1,101 +1,125 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
-type Article = {
+type NewsItem = {
+  id?: string;
   title: string;
-  description: string | null;
-  url: string;
-  source: string; // domain like finance.yahoo.com
-  publishedAt: string | null;
-  guid: string;
-  tickers: string[];
+  source?: string;
+  published?: string;
+  summary?: string;
+  url?: string;
 };
 
-function prettySource(domain: string) {
-  const map: Record<string, string> = {
-    "finance.yahoo.com": "Yahoo Finance",
-    "fool.com": "Motley Fool",
-    "thestreet.com": "TheStreet",
-    "freep.com": "Detroit Free Press",
-  };
-  return map[domain] ?? domain;
-}
+type NewsResponse = {
+  provider?: string;
+  symbol?: string;
+  items?: NewsItem[];
+  ts?: string;
+  error?: string;
+};
 
-export default function NewsFeed({ defaultTickers = "AAPL,TSLA" }: { defaultTickers?: string }) {
-  const [tickers, setTickers] = useState(defaultTickers);
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default function NewsFeed({ symbol }: { symbol: string }) {
+  const [items, setItems] = useState<NewsItem[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const tickersParam = useMemo(
-    () => tickers.split(",").map((t) => t.trim()).filter(Boolean).join(","),
-    [tickers]
-  );
+  const sym = useMemo(() => (symbol || "AAPL").toUpperCase(), [symbol]);
+
+  async function fetchNow() {
+    setLoading(true);
+    setErr(null);
+
+    try {
+      // ✅ ONLY endpoint (confirmed working in your browser)
+      const url = `/api/market/news?symbol=${encodeURIComponent(sym)}`;
+      const res = await fetch(url, { cache: "no-store" });
+
+      if (!res.ok) {
+        setErr(`${url} → HTTP ${res.status}`);
+        return; // keep last good list
+      }
+
+      const json = (await res.json()) as NewsResponse;
+      const list = Array.isArray(json.items) ? json.items : [];
+
+      if (list.length) setItems(list);
+      else if (!items.length) setErr("No news returned");
+    } catch (e: any) {
+      if (!items.length) setErr(e?.message ?? "Failed to load news");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-
-    fetch(`/api/prices?tickers=${encodeURIComponent(tickersParam)}`)
-      .then((r) => r.json())
-      .then((data) => setArticles(data.articles ?? []))
-      .catch((e) => setError(e?.message ?? "Failed to load news"))
-      .finally(() => setLoading(false));
-  }, [tickersParam]);
+    fetchNow();
+    const t = setInterval(fetchNow, 12_000); // refresh every 12s
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sym]);
 
   return (
-    <div style={{ padding: 16 }}>
-      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-        <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0 }}>Market News</h2>
-        <input
-          value={tickers}
-          onChange={(e) => setTickers(e.target.value)}
-          placeholder="Tickers (comma separated) e.g. AAPL,TSLA"
-          style={{
-            flex: 1,
-            padding: "10px 12px",
-            border: "1px solid #e5e7eb",
-            borderRadius: 10,
-            outline: "none",
-          }}
-        />
+    <div className="space-y-2">
+      {/* Compact header */}
+      <div className="flex items-center justify-between">
+        <div className="text-[12px] font-semibold text-white/80">
+          Live News Feed • {sym}
+        </div>
+        <div className="text-[11px] text-white/45">
+          {loading ? "Updating…" : ""}
+        </div>
       </div>
 
-      {loading ? <div style={{ marginTop: 12 }}>Loading…</div> : null}
-      {error ? <div style={{ marginTop: 12, color: "crimson" }}>{error}</div> : null}
+      {/* Compact scroll container */}
+      <div className="rounded-2xl border border-white/10 bg-black/30">
+        {err && (
+          <div className="border-b border-white/10 bg-white/5 px-3 py-2 text-[11px] text-red-300">
+            News error: {err}
+          </div>
+        )}
 
-      <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
-        {articles.map((a) => (
-          <a
-            key={a.guid}
-            href={a.url}
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              display: "block",
-              padding: 14,
-              border: "1px solid #e5e7eb",
-              borderRadius: 12,
-              textDecoration: "none",
-              color: "inherit",
-            }}
-          >
-            <div style={{ fontWeight: 800 }}>{a.title}</div>
-
-            <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-              {prettySource(a.source)}
-              {a.publishedAt ? ` • ${new Date(a.publishedAt).toLocaleString()}` : ""}
-              {a.tickers?.length ? ` • ${a.tickers.join(", ")}` : ""}
+        <div className="max-h-[360px] overflow-auto p-2">
+          {items.length === 0 ? (
+            <div className="px-2 py-3 text-[12px] text-white/45">
+              No news yet.
             </div>
+          ) : (
+            <div className="space-y-2">
+              {items.slice(0, 18).map((n, idx) => (
+                <a
+                  key={n.id ?? `${idx}-${n.title}`}
+                  href={n.url ?? "#"}
+                  target={n.url && n.url !== "#" ? "_blank" : undefined}
+                  rel={n.url && n.url !== "#" ? "noreferrer" : undefined}
+                  className={[
+                    "block rounded-xl border border-white/10 bg-black/40 p-3",
+                    "hover:bg-white/5 transition-colors",
+                  ].join(" ")}
+                >
+                  <div className="text-[12px] font-semibold text-white/85 line-clamp-2">
+                    {n.title}
+                  </div>
 
-            {a.description ? (
-              <div style={{ marginTop: 10, fontSize: 14, opacity: 0.9 }}>
-                {a.description}
-              </div>
-            ) : null}
-          </a>
-        ))}
+                  <div className="mt-1 text-[10px] text-white/45">
+                    {(n.source ?? "Source").toString()}
+                    {n.published ? ` • ${n.published}` : ""}
+                  </div>
+
+                  {n.summary ? (
+                    <div className="mt-2 text-[11px] text-white/55 line-clamp-2">
+                      {n.summary}
+                    </div>
+                  ) : null}
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-white/10 px-3 py-2 text-[10px] text-white/35">
+          Scroll for more • Click to open article
+        </div>
       </div>
     </div>
   );
