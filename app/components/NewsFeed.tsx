@@ -47,7 +47,6 @@ function timeAgo(iso: string) {
   return `${day}d`;
 }
 
-// Map common API shapes into our display model.
 function mapNews(raw: any): NewsItem[] {
   const items: any[] = Array.isArray(raw) ? raw : raw?.items ?? raw?.data ?? raw?.news ?? [];
   return (items || [])
@@ -88,14 +87,26 @@ export default function NewsFeed({ symbol, className }: Props) {
   const [onlySymbol, setOnlySymbol] = useState(Boolean(sym));
   const [showNewOnly, setShowNewOnly] = useState(false);
 
-  // NEW tracking (per symbol)
-  const STORAGE_KEY = sym ? `msa_news_seen_${sym}` : "msa_news_seen_all";
-  const [seenIds, setSeenIds] = useState<Record<string, number>>(() =>
-    safeJsonParse(localStorage.getItem(STORAGE_KEY), {})
-  );
+  // ✅ FIX: start empty; load from localStorage AFTER mount
+  const [seenIds, setSeenIds] = useState<Record<string, number>>({});
 
   const listRef = useRef<HTMLDivElement | null>(null);
 
+  // per-symbol key
+  const STORAGE_KEY = sym ? `msa_news_seen_${sym}` : "msa_news_seen_all";
+
+  // ✅ FIX: read localStorage only on client
+  useEffect(() => {
+    try {
+      const loaded = safeJsonParse<Record<string, number>>(localStorage.getItem(STORAGE_KEY), {});
+      setSeenIds(loaded || {});
+    } catch {
+      setSeenIds({});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [STORAGE_KEY]);
+
+  // persist seen ids
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(seenIds));
@@ -238,7 +249,7 @@ export default function NewsFeed({ symbol, className }: Props) {
         </div>
       </div>
 
-      {/* Scroll area INSIDE card */}
+      {/* Scroll inside card */}
       <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
         {filtered.length === 0 && !loading ? (
           <div className="p-4 text-sm text-muted-foreground">No news found.</div>

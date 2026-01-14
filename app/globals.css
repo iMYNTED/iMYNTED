@@ -2,9 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body { height: 100%; }
-
+/* ✅ LOCK THE APP BACK INTO DARK (prevents white screen / washed out UI) */
+html,
 body {
-  background: #000;
-  color: #fff;
+  height: 100%;
+  background: #070b12;
+  color: #ffffff;
+}
+
+/* ✅ FORCE INPUT TEXT VISIBILITY (prevents white-on-white) */
+input,
+textarea,
+select {
+  color: rgba(255, 255, 255, 0.92);
+  caret-color: rgba(255, 255, 255, 0.92);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+  opacity: 1;
+}
+
+/* Optional: make selection readable */
+::selection {
+  background: rgba(255, 255, 255, 0.18);
 }

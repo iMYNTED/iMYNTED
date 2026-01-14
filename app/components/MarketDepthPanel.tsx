@@ -2,313 +2,326 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-type LevelRow = { px: number; sz: number };
-type Depth = { symbol: string; ts: string; bids: LevelRow[]; asks: LevelRow[] };
+type Level = { px: number; sz: number };
+type Book = { bids: Level[]; asks: Level[] };
 
 function cn(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function fmtPx(v: number) {
-  return Number(v).toFixed(2);
+function clamp(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
 }
 
-function fmtSz(v: number) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return "0";
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(2) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(2) + "K";
-  return String(Math.round(n));
+function fmtPx(n?: number) {
+  if (n === undefined || n === null || Number.isNaN(Number(n))) return "—";
+  return Number(n).toFixed(2);
 }
 
-function clamp01(x: number) {
-  return Math.max(0, Math.min(1, x));
+function fmtSz(n?: number) {
+  if (n === undefined || n === null || Number.isNaN(Number(n))) return "—";
+  const v = Number(n);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(2)}K`;
+  return String(Math.round(v));
 }
 
-function stableMidForSymbol(symbol: string) {
-  // deterministic per symbol, so SSR/CSR match at first paint
-  let h = 0;
-  for (let i = 0; i < symbol.length; i++) h = (h * 31 + symbol.charCodeAt(i)) >>> 0;
-  const base = 120 + (h % 180); // 120..299
-  const cents = (h % 100) / 100;
-  return +(base + cents).toFixed(2);
-}
+function safeLevels(raw: any): Level[] {
+  const arr: any[] = Array.isArray(raw) ? raw : [];
+  const out: Level[] = [];
 
-function buildInitial(symbol: string): Depth {
-  const mid = stableMidForSymbol(symbol);
-  const bids = Array.from({ length: 20 }).map((_, i) => ({
-    px: +(mid - (i + 1) * 0.01).toFixed(2),
-    sz: 250 + i * 35,
-  }));
-  const asks = Array.from({ length: 20 }).map((_, i) => ({
-    px: +(mid + (i + 1) * 0.01).toFixed(2),
-    sz: 250 + i * 35,
-  }));
-  // ts fixed so SSR/CSR match
-  return { symbol, ts: "1970-01-01T00:00:00.000Z", bids, asks };
-}
-
-function normalizeDepth(symbol: string, raw: any): Depth | null {
-  const d = raw?.depth || raw;
-  if (!d) return null;
-
-  const bids: any[] = Array.isArray(d.bids) ? d.bids : [];
-  const asks: any[] = Array.isArray(d.asks) ? d.asks : [];
-  if (!bids.length || !asks.length) return null;
-
-  const clean = (rows: any[]) =>
-    rows
-      .slice(0, 20)
-      .map((r) => ({ px: Number(r.px), sz: Number(r.sz) }))
-      .filter((r) => Number.isFinite(r.px) && Number.isFinite(r.sz));
-
-  const cb = clean(bids);
-  const ca = clean(asks);
-  if (!cb.length || !ca.length) return null;
-
-  return {
-    symbol,
-    ts: typeof d.ts === "string" ? d.ts : new Date().toISOString(),
-    bids: cb,
-    asks: ca,
-  };
-}
-
-export function MarketDepthPanel(props: { symbol?: string; activeSymbol?: string }) {
-  const symbol = useMemo(
-    () => (props.activeSymbol || props.symbol || "AAPL").toUpperCase().trim(),
-    [props.activeSymbol, props.symbol]
-  );
-
-  const [depth, setDepth] = useState<Depth>(() => buildInitial(symbol));
-  const [flash, setFlash] = useState<Record<string, "up" | "down">>({});
-  const flashTimer = useRef<any>(null);
-
-  // reset when symbol changes
-  useEffect(() => {
-    setDepth(buildInitial(symbol));
-    setFlash({});
-  }, [symbol]);
-
-  function setFlashBurst(updates: Record<string, "up" | "down">) {
-    if (!Object.keys(updates).length) return;
-
-    setFlash((f) => ({ ...f, ...updates }));
-
-    if (flashTimer.current) clearTimeout(flashTimer.current);
-    flashTimer.current = setTimeout(() => {
-      setFlash({});
-    }, 250);
+  for (const x of arr) {
+    if (Array.isArray(x) && x.length >= 2) {
+      const px = Number(x[0]);
+      const sz = Number(x[1]);
+      if (Number.isFinite(px) && Number.isFinite(sz)) out.push({ px, sz });
+      continue;
+    }
+    const px = Number(x?.px ?? x?.price ?? x?.p);
+    const sz = Number(x?.sz ?? x?.size ?? x?.s);
+    if (Number.isFinite(px) && Number.isFinite(sz)) out.push({ px, sz });
   }
 
-  // Poll API; if empty/error -> simulate (Bloomberg vibe)
-  useEffect(() => {
-    let alive = true;
+  return out;
+}
 
-    function simulateTick() {
-      setDepth((cur) => {
-        const mid =
-          (cur.bids[0]?.px + cur.asks[0]?.px) / 2 ||
-          stableMidForSymbol(symbol);
+// ✅ only called inside effects (client), never during SSR render
+function buildSimBook(mid: number, depth = 12): Book {
+  const bids: Level[] = [];
+  const asks: Level[] = [];
+  const tick = mid < 10 ? 0.01 : mid < 100 ? 0.01 : 0.05;
 
-        // deterministic “wobble”: based on current timestamp seconds (client only)
-        const s = new Date().getSeconds();
-        const wobble = (s % 2 === 0 ? 1 : -1) * 0.01;
-        const newMid = +(mid + wobble).toFixed(2);
+  for (let i = 0; i < depth; i++) {
+    const bpx = +(mid - (i + 1) * tick).toFixed(2);
+    const apx = +(mid + (i + 1) * tick).toFixed(2);
 
-        const bids = cur.bids.map((r, i) => ({
-          px: +(newMid - (i + 1) * 0.01).toFixed(2),
-          sz: Math.max(10, Math.round(r.sz + ((i % 2 === 0 ? 1 : -1) * 18))),
-        }));
+    const bsz = Math.round(200 + Math.random() * 12000);
+    const asz = Math.round(200 + Math.random() * 12000);
 
-        const asks = cur.asks.map((r, i) => ({
-          px: +(newMid + (i + 1) * 0.01).toFixed(2),
-          sz: Math.max(10, Math.round(r.sz + ((i % 3 === 0 ? 1 : -1) * 14))),
-        }));
+    bids.push({ px: bpx, sz: bsz });
+    asks.push({ px: apx, sz: asz });
+  }
 
-        const updates: Record<string, "up" | "down"> = {};
-        for (let i = 0; i < 20; i++) {
-          const db = bids[i].sz - cur.bids[i].sz;
-          const da = asks[i].sz - cur.asks[i].sz;
-          if (db !== 0) updates[`b-${i}`] = db > 0 ? "up" : "down";
-          if (da !== 0) updates[`a-${i}`] = da > 0 ? "up" : "down";
-        }
-        setFlashBurst(updates);
+  return { bids, asks };
+}
 
-        return { symbol, ts: new Date().toISOString(), bids, asks };
+type PulseMap = Record<string, 1>;
+
+export function MarketDepthPanel({ symbol }: { symbol: string }) {
+  const sym = useMemo(() => (symbol || "AAPL").toUpperCase().trim(), [symbol]);
+
+  const depth = 12;
+
+  // ✅ start empty so SSR/CSR match perfectly
+  const [book, setBook] = useState<Book>({ bids: [], asks: [] });
+  const [mode, setMode] = useState<"auto" | "api" | "sim">("auto");
+  const [err, setErr] = useState("");
+
+  const prevRef = useRef<Book | null>(null);
+  const midRef = useRef<number>(100);
+
+  const [pulse, setPulse] = useState<PulseMap>({});
+  const timers = useRef<Record<string, any>>({});
+
+  function pulseKey(k: string) {
+    setPulse((p) => ({ ...p, [k]: 1 }));
+    if (timers.current[k]) clearTimeout(timers.current[k]);
+    timers.current[k] = setTimeout(() => {
+      setPulse((p) => {
+        const next = { ...p };
+        delete next[k];
+        return next;
       });
+      delete timers.current[k];
+    }, 220);
+  }
+
+  async function fetchBookFromApi(): Promise<Book | null> {
+    const urls = [
+      `/api/market/depth?symbol=${encodeURIComponent(sym)}`,
+      `/api/market/l2?symbol=${encodeURIComponent(sym)}`,
+      `/api/market/book?symbol=${encodeURIComponent(sym)}`,
+    ];
+
+    for (const url of urls) {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) continue;
+      const raw = await res.json();
+
+      const bids = safeLevels(raw?.bids ?? raw?.bid ?? raw?.book?.bids).slice(0, 50);
+      const asks = safeLevels(raw?.asks ?? raw?.ask ?? raw?.book?.asks).slice(0, 50);
+
+      if (bids.length >= 2 && asks.length >= 2) return { bids, asks };
     }
 
-    async function poll() {
-      if (!alive) return;
+    return null;
+  }
 
-      try {
-        const r = await fetch(`/api/market/depth?symbol=${encodeURIComponent(symbol)}`, {
-          cache: "no-store",
-        });
-        const j = await r.json().catch(() => null);
-        if (!alive) return;
+  function apply(next: Book) {
+    const prev = prevRef.current;
 
-        const norm = normalizeDepth(symbol, j);
-        if (norm) {
-          setDepth((prev) => {
-            const updates: Record<string, "up" | "down"> = {};
-            for (let i = 0; i < 20; i++) {
-              const pb = prev.bids[i];
-              const nb = norm.bids[i];
-              const pa = prev.asks[i];
-              const na = norm.asks[i];
-              if (pb && nb && nb.sz !== pb.sz) updates[`b-${i}`] = nb.sz > pb.sz ? "up" : "down";
-              if (pa && na && na.sz !== pa.sz) updates[`a-${i}`] = na.sz > pa.sz ? "up" : "down";
-            }
-            setFlashBurst(updates);
-            return norm;
-          });
-        } else {
-          simulateTick();
-        }
-      } catch {
-        if (!alive) return;
-        simulateTick();
-      } finally {
-        if (!alive) return;
-        setTimeout(poll, 900);
+    if (prev) {
+      for (let i = 0; i < depth; i++) {
+        const pb = prev.bids?.[i];
+        const nb = next.bids?.[i];
+        const pa = prev.asks?.[i];
+        const na = next.asks?.[i];
+
+        // pulse on size changes (the bar “blinks” like a terminal)
+        if (pb && nb && pb.sz !== nb.sz) pulseKey(`b_${i}`);
+        if (pa && na && pa.sz !== na.sz) pulseKey(`a_${i}`);
       }
     }
 
-    poll();
+    prevRef.current = next;
+    setBook(next);
+  }
+
+  // seed on symbol change (client only)
+  useEffect(() => {
+    setErr("");
+    prevRef.current = null;
+    setPulse({});
+    // seed mid and first sim render
+    midRef.current = clamp(midRef.current + (Math.random() - 0.5) * 5, 1, 5000);
+    apply(buildSimBook(midRef.current, depth));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sym]);
+
+  // poll loop (client only)
+  useEffect(() => {
+    let alive = true;
+
+    async function tick() {
+      try {
+        if (!alive) return;
+
+        if (mode === "sim") {
+          midRef.current = clamp(midRef.current + (Math.random() - 0.5) * 0.35, 1, 5000);
+          apply(buildSimBook(midRef.current, depth));
+          return;
+        }
+
+        const api = await fetchBookFromApi();
+        if (api) {
+          const bb = api.bids?.[0]?.px;
+          const ba = api.asks?.[0]?.px;
+          if (Number.isFinite(bb) && Number.isFinite(ba)) midRef.current = (bb! + ba!) / 2;
+          setErr("");
+          apply(api);
+          return;
+        }
+
+        if (mode === "auto") {
+          // auto fallback to sim when api not present
+          midRef.current = clamp(midRef.current + (Math.random() - 0.5) * 0.35, 1, 5000);
+          apply(buildSimBook(midRef.current, depth));
+        } else {
+          setErr("L2 API not available.");
+        }
+      } catch (e: any) {
+        setErr(e?.message || "L2 error");
+      }
+    }
+
+    tick();
+    const t = setInterval(tick, 900);
     return () => {
       alive = false;
-      if (flashTimer.current) clearTimeout(flashTimer.current);
+      clearInterval(t);
     };
-  }, [symbol]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sym, mode]);
 
-  const bestBid = depth.bids[0]?.px ?? 0;
-  const bestAsk = depth.asks[0]?.px ?? 0;
-  const spread = bestAsk && bestBid ? +(bestAsk - bestBid).toFixed(2) : 0;
+  const bids = Array.isArray(book.bids) ? book.bids : [];
+  const asks = Array.isArray(book.asks) ? book.asks : [];
 
-  const maxBid = useMemo(() => Math.max(1, ...depth.bids.map((r) => r.sz)), [depth]);
-  const maxAsk = useMemo(() => Math.max(1, ...depth.asks.map((r) => r.sz)), [depth]);
+  const maxBidSz = Math.max(1, ...bids.slice(0, depth).map((x) => x?.sz ?? 0));
+  const maxAskSz = Math.max(1, ...asks.slice(0, depth).map((x) => x?.sz ?? 0));
 
-  const flashCls = (key: string, side: "b" | "a") => {
-    const v = flash[key];
-    if (!v) return "";
-    if (side === "b") return v === "up" ? "bg-emerald-500/25" : "bg-emerald-500/15";
-    return v === "up" ? "bg-rose-500/15" : "bg-rose-500/25";
-  };
+  const bestBid = bids[0]?.px;
+  const bestAsk = asks[0]?.px;
+  const spr =
+    Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? (bestAsk! - bestBid!).toFixed(2) : "—";
+
+  function barStyle(side: "bid" | "ask", pct: number, pulsing: boolean) {
+    const a = pulsing ? 0.78 : 0.55;
+    const bg =
+      side === "bid"
+        ? `linear-gradient(to right, rgba(16,185,129,${a}), rgba(16,185,129,0))`
+        : `linear-gradient(to right, rgba(239,68,68,${a}), rgba(239,68,68,0))`;
+
+    return {
+      width: `${clamp(pct, 0, 100)}%`,
+      background: bg,
+      opacity: pulsing ? 0.52 : 0.34,
+      filter: pulsing ? "brightness(1.18)" : "brightness(1.0)",
+      transition: "width 200ms ease, opacity 180ms ease, filter 180ms ease",
+    } as React.CSSProperties;
+  }
 
   return (
-    <div className="h-full min-h-0">
-      <div className="mb-2 flex items-center justify-between text-[11px] text-white/45">
-        <div>
-          <span className="text-white/80 font-semibold">{symbol}</span>{" "}
-          <span className="text-white/35">•</span>{" "}
-          <span className="tabular-nums text-white/60">
-            bid {bestBid ? fmtPx(bestBid) : "--"} / ask {bestAsk ? fmtPx(bestAsk) : "--"} / spr{" "}
-            {spread ? spread.toFixed(2) : "--"}
-          </span>
+    <div className="h-full min-h-0 flex flex-col">
+      {/* top header (matches your screenshot info line) */}
+      <div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
+        <div className="text-sm font-semibold">Level 2</div>
+        <div className="text-[11px] text-muted-foreground">
+          {sym} • bid {fmtPx(bestBid)} / ask {fmtPx(bestAsk)} / spr {spr}
         </div>
-        <div className="tabular-nums text-white/35">
-          {depth.ts && depth.ts !== "1970-01-01T00:00:00.000Z"
-            ? new Date(depth.ts).toLocaleTimeString()
-            : ""}
-        </div>
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value as any)}
+          className="h-8 rounded-md border border-white/10 bg-background px-2 text-xs"
+          title="Data source"
+        >
+          <option value="auto">Auto</option>
+          <option value="api">API</option>
+          <option value="sim">Sim</option>
+        </select>
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-black/40 overflow-hidden">
-        {/* Header */}
-        <div className="grid grid-cols-12 border-b border-white/10 text-[11px]">
-          <div className="col-span-5 px-3 py-2 text-white/70 font-semibold">Bids</div>
-          <div className="col-span-2 px-2 py-2 text-center text-white/60 font-semibold">
-            Spread
-          </div>
-          <div className="col-span-5 px-3 py-2 text-white/70 font-semibold">Asks</div>
+      {err ? (
+        <div className="border-b border-white/10 px-3 py-2 text-xs text-red-500">{err}</div>
+      ) : null}
+
+      {/* table exactly like screenshot: Bids | Spread | Asks */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="grid grid-cols-12 border-b border-white/10 px-3 py-2 text-[11px] text-muted-foreground">
+          <div className="col-span-5">Bids</div>
+          <div className="col-span-2 text-center">Spread</div>
+          <div className="col-span-5 text-right">Asks</div>
         </div>
 
-        {/* 3-column ladder */}
-        <div className="max-h-[560px] overflow-y-auto">
-          {/* subheaders */}
-          <div className="grid grid-cols-12 sticky top-0 z-10 bg-black/70 text-[10px] text-white/45 border-b border-white/10">
-            <div className="col-span-5 grid grid-cols-3 px-3 py-1">
-              <div>Px</div>
-              <div className="text-right">Sz</div>
-              <div className="text-right">Depth</div>
-            </div>
-            <div className="col-span-2 px-2 py-1 text-center">Spr</div>
-            <div className="col-span-5 grid grid-cols-3 px-3 py-1">
-              <div>Px</div>
-              <div className="text-right">Sz</div>
-              <div className="text-right">Depth</div>
-            </div>
-          </div>
+        <div className="grid grid-cols-12 border-b border-white/10 px-3 py-2 text-[11px] text-muted-foreground">
+          {/* left headers */}
+          <div className="col-span-2">Px</div>
+          <div className="col-span-2 text-right">Sz</div>
+          <div className="col-span-1 text-right">Depth</div>
 
-          {Array.from({ length: 20 }).map((_, i) => {
-            const b = depth.bids[i];
-            const a = depth.asks[i];
-            const bw = b ? clamp01(b.sz / maxBid) * 100 : 0;
-            const aw = a ? clamp01(a.sz / maxAsk) * 100 : 0;
-            const rowSpread = a && b ? +(a.px - b.px).toFixed(2) : spread;
+          {/* spread header */}
+          <div className="col-span-2 text-center">Spr</div>
 
-            return (
-              <div key={`row-${i}`} className="grid grid-cols-12 border-b border-white/5 text-[12px]">
-                {/* BIDS */}
-                <div
-                  className={cn(
-                    "col-span-5 relative grid grid-cols-3 items-center px-3 py-1 transition-colors",
-                    flashCls(`b-${i}`, "b")
-                  )}
-                >
-                  <div
-                    className="absolute inset-y-0 left-0 z-0 bg-emerald-500/10 transition-[width] duration-300 ease-out"
-                    style={{ width: `${bw}%` }}
-                  />
-                  <div className="relative z-10 tabular-nums text-emerald-300">
-                    {b ? fmtPx(b.px) : "--"}
-                  </div>
-                  <div className="relative z-10 text-right tabular-nums text-white/75">
-                    {b ? fmtSz(b.sz) : "--"}
-                  </div>
-                  <div className="relative z-10 text-right tabular-nums text-white/45">
-                    {b ? `${Math.round(bw)}%` : ""}
-                  </div>
-                </div>
+          {/* right headers */}
+          <div className="col-span-1 text-right">Depth</div>
+          <div className="col-span-2 text-right">Sz</div>
+          <div className="col-span-2 text-right">Px</div>
+        </div>
 
-                {/* SPREAD */}
-                <div className="col-span-2 px-2 py-1 flex items-center justify-center">
-                  <div className="rounded-lg border border-white/10 bg-black/40 px-2 py-[2px] text-[11px] tabular-nums text-white/70">
-                    {Number.isFinite(rowSpread) ? rowSpread.toFixed(2) : "--"}
-                  </div>
-                </div>
+        {Array.from({ length: depth }).map((_, i) => {
+          const b = bids[i];
+          const a = asks[i];
 
-                {/* ASKS */}
-                <div
-                  className={cn(
-                    "col-span-5 relative grid grid-cols-3 items-center px-3 py-1 transition-colors",
-                    flashCls(`a-${i}`, "a")
-                  )}
-                >
-                  <div
-                    className="absolute inset-y-0 left-0 z-0 bg-rose-500/10 transition-[width] duration-300 ease-out"
-                    style={{ width: `${aw}%` }}
-                  />
-                  <div className="relative z-10 tabular-nums text-rose-300">
-                    {a ? fmtPx(a.px) : "--"}
-                  </div>
-                  <div className="relative z-10 text-right tabular-nums text-white/75">
-                    {a ? fmtSz(a.sz) : "--"}
-                  </div>
-                  <div className="relative z-10 text-right tabular-nums text-white/45">
-                    {a ? `${Math.round(aw)}%` : ""}
-                  </div>
-                </div>
+          const bPct = b?.sz ? Math.round((b.sz / maxBidSz) * 100) : 0;
+          const aPct = a?.sz ? Math.round((a.sz / maxAskSz) * 100) : 0;
+
+          const rowSpr =
+            Number.isFinite(b?.px) && Number.isFinite(a?.px) ? (a!.px - b!.px).toFixed(2) : "—";
+
+          const bPulse = Boolean(pulse[`b_${i}`]);
+          const aPulse = Boolean(pulse[`a_${i}`]);
+
+          return (
+            <div
+              key={i}
+              className={cn(
+                "relative grid grid-cols-12 px-3 py-1.5 text-sm border-b border-white/10",
+                i === 0 && "bg-muted/20"
+              )}
+            >
+              {/* bid depth bar behind left section */}
+              <div
+                className="absolute inset-y-0 left-0"
+                style={barStyle("bid", bPct, bPulse)}
+              />
+              {/* ask depth bar behind right section (start at middle) */}
+              <div
+                className="absolute inset-y-0 left-1/2"
+                style={barStyle("ask", aPct, aPulse)}
+              />
+
+              {/* BIDS */}
+              <div className="col-span-2 tabular-nums text-emerald-400 relative">{fmtPx(b?.px)}</div>
+              <div className="col-span-2 text-right tabular-nums relative">{fmtSz(b?.sz)}</div>
+              <div className="col-span-1 text-right tabular-nums text-muted-foreground relative">
+                {b ? `${bPct}%` : "—"}
               </div>
-            );
-          })}
-        </div>
 
-        <div className="border-t border-white/10 px-3 py-2 text-[10px] text-white/40">
-          Bloomberg ladder: Bids | Spread | Asks • flashes on size change • bars animate on updates
-        </div>
+              {/* SPREAD column */}
+              <div className="col-span-2 text-center tabular-nums relative">
+                <span className="inline-flex min-w-[2.5rem] justify-center rounded-md border border-white/10 bg-black/20 px-2 py-0.5 text-xs">
+                  {rowSpr}
+                </span>
+              </div>
+
+              {/* ASKS */}
+              <div className="col-span-1 text-right tabular-nums text-muted-foreground relative">
+                {a ? `${aPct}%` : "—"}
+              </div>
+              <div className="col-span-2 text-right tabular-nums relative">{fmtSz(a?.sz)}</div>
+              <div className="col-span-2 text-right tabular-nums text-red-400 relative">{fmtPx(a?.px)}</div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
