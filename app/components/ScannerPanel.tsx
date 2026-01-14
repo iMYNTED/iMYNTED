@@ -2,261 +2,185 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-type RawRow = Record<string, any>;
-
-type Row = {
+type ScanRow = {
   symbol: string;
-  price: number;
-  change: number;
-  changePct: number;
-  volume: number;
-  volumeLabel?: string;
-  tag?: string;
+  price?: number;
+  chg?: number;
+  chgPct?: number | string;
+  vol?: number;
+  float?: number;
+  news?: number;
+  halted?: boolean;
+  [k: string]: any;
 };
 
-type ApiResponse = {
-  provider?: string;
-  type?: string;
-  rows?: RawRow[];
-  ts?: string;
-};
-
-type Tab = "gainers" | "losers" | "unusual" | "news" | "halts";
+type TabKey = "gainers" | "losers" | "unusual" | "news" | "halts";
 
 function cn(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-/** Robust numeric parser:
- * supports numbers, "4.63%", "1,234.56", "+3.10", null/undefined
- */
-function n(v: any): number {
-  if (v === null || v === undefined) return NaN;
-  if (typeof v === "number") return Number.isFinite(v) ? v : NaN;
-
-  if (typeof v === "string") {
-    const s = v.trim().replace(/,/g, "").replace(/%/g, "");
-    const x = Number(s);
-    return Number.isFinite(x) ? x : NaN;
-  }
-
-  const x = Number(v);
-  return Number.isFinite(x) ? x : NaN;
+function fmtNum(n?: number) {
+  if (n === undefined || n === null || Number.isNaN(Number(n))) return "—";
+  const v = Number(n);
+  if (Math.abs(v) >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(2)}B`;
+  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(2)}K`;
+  return String(v.toFixed(0));
 }
 
-function fmtPx(x: number) {
-  if (!Number.isFinite(x)) return "-";
-  return x >= 1 ? x.toFixed(2) : x.toFixed(4);
+function fmtPrice(n?: number) {
+  if (n === undefined || n === null || Number.isNaN(Number(n))) return "—";
+  return Number(n).toFixed(2);
 }
 
-function fmtSigned(x: number) {
-  if (!Number.isFinite(x)) return "-";
-  const s = x >= 0 ? "+" : "";
-  return s + (Math.abs(x) >= 1 ? x.toFixed(2) : x.toFixed(4));
+function normalizePct(n: any): number | null {
+  const v = Number(n);
+  if (Number.isNaN(v)) return null;
+  return Math.abs(v) <= 1 ? v * 100 : v;
 }
 
-function fmtPct(x: number) {
-  if (!Number.isFinite(x)) return "-";
-  const s = x >= 0 ? "+" : "";
-  return `${s}${x.toFixed(2)}%`;
+function mapRows(raw: any): ScanRow[] {
+  const rows: any[] = Array.isArray(raw) ? raw : raw?.rows ?? raw?.data ?? raw?.items ?? [];
+  return (rows || [])
+    .map((x: any) => {
+      const symbol = String(x.symbol || x.ticker || x.sym || "").toUpperCase();
+      const price = Number(x.price ?? x.last ?? x.lastPrice ?? x.p ?? NaN);
+      const chg = Number(x.chg ?? x.change ?? x.dollarChange ?? NaN);
+      const chgPct = x.chgPct ?? x.changePercent ?? x.pct ?? x.percentChange ?? x.dp;
+      const vol = Number(x.vol ?? x.volume ?? x.v ?? NaN);
+      const float = Number(x.float ?? x.floatShares ?? x.shares_float ?? NaN);
+      const news = Number(x.news ?? x.newsCount ?? x.articles ?? NaN);
+      const halted = Boolean(x.halted ?? x.isHalted ?? x.halt ?? false);
+
+      return {
+        ...x,
+        symbol,
+        price: Number.isFinite(price) ? price : undefined,
+        chg: Number.isFinite(chg) ? chg : undefined,
+        chgPct,
+        vol: Number.isFinite(vol) ? vol : undefined,
+        float: Number.isFinite(float) ? float : undefined,
+        news: Number.isFinite(news) ? news : undefined,
+        halted,
+      };
+    })
+    .filter((r: ScanRow) => r.symbol);
 }
 
-function volLabel(v: number, fallback?: string) {
-  if (fallback) return fallback;
-  if (!Number.isFinite(v)) return "-";
-  if (v >= 1_000_000_000) return (v / 1_000_000_000).toFixed(2) + "B";
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(2) + "M";
-  if (v >= 1_000) return (v / 1_000).toFixed(2) + "K";
-  return String(Math.round(v));
-}
-
-function normalize(r: RawRow): Row {
-  const symbol = String(r.symbol ?? r.ticker ?? r.sym ?? "")
-    .toUpperCase()
-    .trim();
-
-  // Price
-  const price = n(r.price ?? r.px ?? r.last ?? r.lastPrice ?? r.ltp);
-
-  // Dollar change
-  const change = n(r.change ?? r.chg ?? r.delta ?? r.net ?? r.netChange);
-
-  // Percent change (may come as "4.63%")
-  let changePct = n(r.changePct ?? r.chgPct ?? r.pct ?? r.percent ?? r.netPct);
-
-  // Fallback: compute % from price + change
-  if (!Number.isFinite(changePct)) {
-    const px = price;
-    const chg = change;
-    const prev = px - chg;
-    if (Number.isFinite(px) && Number.isFinite(chg) && Number.isFinite(prev) && prev !== 0) {
-      changePct = (chg / prev) * 100;
-    }
-  }
-
-  // Volume
-  const volume = n(r.volume ?? r.vol ?? r.v ?? r.totalVolume);
-
-  const volumeLabel = (r.volumeLabel ?? r.volLabel ?? r.volume_label) as string | undefined;
-  const tag = (r.tag ?? r.type ?? r.label) as string | undefined;
-
-  return { symbol, price, change, changePct, volume, volumeLabel, tag };
-}
-
-const TABS: Array<{ key: Tab; label: string }> = [
-  { key: "gainers", label: "GAINERS" },
-  { key: "losers", label: "LOSERS" },
-  { key: "unusual", label: "UNUSUAL" },
-  { key: "news", label: "NEWS" },
+const TAB_META: Array<{ key: TabKey; label: string }> = [
+  { key: "gainers", label: "Top Gainers" },
+  { key: "losers", label: "Top Losers" },
+  { key: "unusual", label: "Unusual Vol" },
+  { key: "news", label: "News Spike" },
   { key: "halts", label: "HALTS" },
 ];
 
-export default function ScannerPanel({
-  symbol,
-  onPickSymbol,
-  className,
-}: {
-  symbol?: string;
-  onPickSymbol?: (s: string) => void;
-  className?: string;
-}) {
-  const focusSymbol = useMemo(() => (symbol || "").toUpperCase().trim(), [symbol]);
+export default function ScannerPanel() {
+  const [tab, setTab] = useState<TabKey>("gainers");
+  const [rows, setRows] = useState<ScanRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string>("");
 
-  const [tab, setTab] = useState<Tab>("gainers");
-  const [rows, setRows] = useState<Row[]>([]);
   const [q, setQ] = useState("");
-  const [paused, setPaused] = useState(false);
-  const [pollMs, setPollMs] = useState(1500);
-  const [compact, setCompact] = useState(true);
-  const [status, setStatus] = useState<string>("");
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const filterRef = useRef<HTMLInputElement | null>(null);
-  const [sel, setSel] = useState(0);
+  async function fetchScan(activeTab: TabKey) {
+    setLoading(true);
+    setErr("");
+    try {
+      // UI supports per-tab; if API ignores it, we still client-sort.
+      const res = await fetch(`/api/market/scanners?tab=${encodeURIComponent(activeTab)}`, {
+        cache: "no-store",
+      });
 
-  // Poll scanner endpoint
+      if (!res.ok) {
+        const res2 = await fetch(`/api/market/scanners`, { cache: "no-store" });
+        if (!res2.ok) throw new Error(`Scanners API ${res.status}/${res2.status}`);
+        const raw2 = await res2.json();
+        setRows(mapRows(raw2));
+      } else {
+        const raw = await res.json();
+        setRows(mapRows(raw));
+      }
+    } catch (e: any) {
+      setErr(e?.message || "Failed to load scanners");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     let alive = true;
-    let t: any;
-
-    async function poll() {
-      try {
-        setStatus("");
-        const res = await fetch(`/api/market/scanner?type=${encodeURIComponent(tab)}`, {
-          cache: "no-store",
-        });
-        if (!alive) return;
-
-        if (!res.ok) {
-          setRows([]);
-          setStatus(`HTTP ${res.status}`);
-          return;
-        }
-
-        const json = (await res.json()) as ApiResponse;
-        const raw = Array.isArray(json?.rows) ? json.rows : [];
-        const next = raw.map(normalize).filter((r) => r.symbol);
-
-        setRows(next);
-      } catch {
-        if (!alive) return;
-        setRows([]);
-        setStatus("Fetch error");
-      } finally {
-        if (!alive) return;
-        t = setTimeout(poll, pollMs);
-      }
-    }
-
-    if (!paused) poll();
+    fetchScan(tab);
+    const t = setInterval(() => {
+      if (!alive) return;
+      fetchScan(tab);
+    }, 6_000);
     return () => {
       alive = false;
-      if (t) clearTimeout(t);
+      clearInterval(t);
     };
-  }, [paused, pollMs, tab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   const filtered = useMemo(() => {
-    const qq = q.trim().toUpperCase();
-    return rows.filter((r) => (qq ? r.symbol.includes(qq) : true));
-  }, [rows, q]);
+    const needle = q.trim().toUpperCase();
+    let list = rows.slice();
 
-  // Keep selection valid
-  useEffect(() => {
-    if (filtered.length === 0) setSel(0);
-    else setSel((s) => Math.max(0, Math.min(s, filtered.length - 1)));
-  }, [filtered.length]);
+    // Client sorting/filtering as a fallback if API isn't tab-aware.
+    if (tab === "halts") list = list.filter((r) => r.halted);
+    if (tab === "news") list = list.sort((a, b) => (b.news || 0) - (a.news || 0));
+    if (tab === "unusual") list = list.sort((a, b) => (b.vol || 0) - (a.vol || 0));
+    if (tab === "gainers")
+      list = list.sort((a, b) => (normalizePct(b.chgPct) || 0) - (normalizePct(a.chgPct) || 0));
+    if (tab === "losers")
+      list = list.sort((a, b) => (normalizePct(a.chgPct) || 0) - (normalizePct(b.chgPct) || 0));
 
-  // Keep selected row visible
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-    const row = el.querySelector<HTMLElement>(`[data-row="${sel}"]`);
-    if (row) row.scrollIntoView({ block: "nearest" });
-  }, [sel]);
+    if (needle) list = list.filter((r) => r.symbol.includes(needle));
+    return list.slice(0, 200);
+  }, [rows, tab, q]);
 
-  // Hotkeys
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const isTyping =
-        t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || (t as any)?.isContentEditable;
+  function pctClass(v: any) {
+    const p = normalizePct(v);
+    if (p === null) return "text-muted-foreground";
+    return p >= 0 ? "text-emerald-400" : "text-red-400";
+  }
 
-      // "." focuses scanner filter
-      if (!isTyping && e.key === ".") {
-        e.preventDefault();
-        filterRef.current?.focus();
-        return;
-      }
-
-      // Don't steal keys from other inputs
-      if (isTyping && t !== filterRef.current) return;
-
-      // Esc clears filter
-      if (e.key === "Escape") {
-        if (document.activeElement === filterRef.current || q) {
-          e.preventDefault();
-          setQ("");
-          filterRef.current?.blur();
-        }
-        return;
-      }
-
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSel((s) => Math.min(s + 1, Math.max(0, filtered.length - 1)));
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSel((s) => Math.max(s - 1, 0));
-        return;
-      }
-
-      if (e.key === "Enter") {
-        if (filtered.length > 0) {
-          e.preventDefault();
-          const pick = filtered[Math.max(0, Math.min(sel, filtered.length - 1))];
-          if (pick?.symbol) onPickSymbol?.(pick.symbol);
-        }
-      }
-    };
-
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [filtered, onPickSymbol, q, sel]);
+  function chgClass(v?: number) {
+    if (v === undefined) return "text-muted-foreground";
+    return v >= 0 ? "text-emerald-400" : "text-red-400";
+  }
 
   return (
-    <div className={cn("h-full min-h-0 w-full", className)}>
-      {/* Controls */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1 rounded-xl border border-white/10 bg-black/30 p-1">
-          {TABS.map((t) => (
+    <div className="h-full min-h-0 flex flex-col">
+      {/* Sticky controls */}
+      <div className="sticky top-0 z-10 border-b border-white/10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <div className="text-sm font-semibold">Scanners</div>
+          <button
+            className="rounded-md border border-white/10 px-2 py-1 text-xs hover:bg-muted"
+            onClick={() => fetchScan(tab)}
+            disabled={loading}
+            title="Refresh"
+          >
+            {loading ? "..." : "↻"}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-2 px-3 pb-2">
+          {TAB_META.map((t) => (
             <button
               key={t.key}
-              onClick={() => setTab(t.key)}
+              onClick={() => {
+                setTab(t.key);
+                requestAnimationFrame(() => {
+                  if (scrollRef.current) scrollRef.current.scrollTop = 0;
+                });
+              }}
               className={cn(
-                "rounded-lg px-2.5 py-1 text-[11px] transition",
-                tab === t.key ? "bg-white/80 text-black" : "text-white/75 hover:bg-white/10"
+                "rounded-md border border-white/10 px-2 py-1 text-xs hover:bg-muted",
+                tab === t.key && "bg-muted"
               )}
             >
               {t.label}
@@ -264,141 +188,71 @@ export default function ScannerPanel({
           ))}
         </div>
 
-        <input
-          ref={filterRef}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Filter… (AAPL)"
-          spellCheck={false}
-          className="w-[160px] rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[12px] text-white/85 outline-none placeholder:text-white/30"
-        />
-
-        <button
-          onClick={() => setPaused((p) => !p)}
-          className={cn(
-            "rounded-xl border border-white/10 px-3 py-2 text-[12px]",
-            paused ? "bg-white/10 text-white/80" : "bg-black/30 text-white/80 hover:bg-white/10"
-          )}
-        >
-          {paused ? "Paused" : "Live"}
-        </button>
-
-        <button
-          onClick={() => setCompact((c) => !c)}
-          className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[12px] text-white/80 hover:bg-white/10"
-        >
-          {compact ? "Compact" : "Comfort"}
-        </button>
-
-        <select
-          value={pollMs}
-          onChange={(e) => setPollMs(Number(e.target.value))}
-          className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[12px] text-white/80"
-        >
-          <option value={1000}>1s</option>
-          <option value={1500}>1.5s</option>
-          <option value={2000}>2s</option>
-          <option value={3000}>3s</option>
-        </select>
-
-        <div className="ml-auto text-[11px] text-white/35">
-          Focus <span className="text-white/70">{focusSymbol || "-"}</span> • Rows{" "}
-          <span className="text-white/70">{filtered.length}</span>
-          {status ? <span className="ml-2 text-red-300">({status})</span> : null}
+        <div className="flex flex-wrap items-center gap-2 px-3 pb-2">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Symbol…"
+            className="h-8 w-[160px] rounded-md border border-white/10 bg-background px-2 text-sm outline-none focus:ring-2"
+          />
+          {err ? <span className="text-xs text-red-500">{err}</span> : null}
         </div>
       </div>
 
-      {/* Header */}
-      <div className="grid grid-cols-12 gap-2 rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-[11px] font-semibold text-white/55">
-        <div className="col-span-2">SYM</div>
-        <div className="col-span-2 text-right">PX</div>
-        <div className="col-span-2 text-right">CHG</div>
-        <div className="col-span-2 text-right">CHG%</div>
-        <div className="col-span-2 text-right">VOL</div>
-        <div className="col-span-2 text-right">TAG</div>
-      </div>
+      {/* Scroll area */}
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="grid grid-cols-12 gap-2 border-b border-white/10 px-3 py-2 text-[11px] text-muted-foreground">
+          <div className="col-span-2">SYM</div>
+          <div className="col-span-2 text-right">LAST</div>
+          <div className="col-span-2 text-right">CHG</div>
+          <div className="col-span-2 text-right">CHG%</div>
+          <div className="col-span-2 text-right">VOL</div>
+          <div className="col-span-2 text-right">FLOAT</div>
+        </div>
 
-      {/* Body */}
-      <div
-        ref={listRef}
-        className="mt-2 h-full min-h-0 overflow-auto rounded-xl border border-white/10 bg-black/20"
-      >
-        {filtered.length === 0 ? (
-          <div className="p-4 text-[12px] text-white/45">No rows.</div>
+        {filtered.length === 0 && !loading ? (
+          <div className="p-4 text-sm text-muted-foreground">No rows.</div>
         ) : (
-          <div className="divide-y divide-white/5">
-            {filtered.map((r, idx) => {
-              const up = (r.changePct ?? 0) >= 0;
-              const selected = idx === sel;
+          filtered.map((r) => {
+            const pct = normalizePct(r.chgPct);
+            const isHalt = Boolean(r.halted);
+            const news = r.news;
 
-              return (
-                <button
-                  key={`${r.symbol}-${idx}`}
-                  data-row={idx}
-                  onClick={() => {
-                    setSel(idx);
-                    onPickSymbol?.(r.symbol);
-                  }}
-                  className={cn(
-                    "relative w-full text-left grid grid-cols-12 gap-2 px-3",
-                    compact ? "py-1.5" : "py-2.5",
-                    selected ? "bg-white/10" : "hover:bg-white/5"
+            return (
+              <div
+                key={r.symbol}
+                className={cn(
+                  "grid grid-cols-12 gap-2 border-b border-white/10 px-3 py-2 text-sm hover:bg-muted/50",
+                  isHalt && "bg-muted/40"
+                )}
+              >
+                <div className="col-span-2 flex items-center gap-2">
+                  <span className="font-semibold">{r.symbol}</span>
+                  {isHalt && (
+                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold">
+                      HALT
+                    </span>
                   )}
-                  title="Click to set symbol • ↑/↓ select • Enter pick • '.' focus filter • Esc clear"
-                >
-                  {/* Active bar */}
-                  <div
-                    className={cn(
-                      "absolute left-0 top-0 h-full w-[3px]",
-                      selected ? "bg-emerald-400/70" : "bg-transparent"
-                    )}
-                  />
+                  {Number.isFinite(news) && (news || 0) > 0 && (
+                    <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] font-semibold">
+                      NEWS {news}
+                    </span>
+                  )}
+                </div>
 
-                  <div className={cn("col-span-2 font-semibold", selected ? "text-white" : "text-white/85")}>
-                    {r.symbol}
-                  </div>
-
-                  <div className={cn("col-span-2 text-right tabular-nums", selected ? "text-white/90" : "text-white/75")}>
-                    {fmtPx(r.price)}
-                  </div>
-
-                  <div
-                    className={cn(
-                      "col-span-2 text-right tabular-nums font-semibold",
-                      up ? "text-emerald-400" : "text-red-400"
-                    )}
-                  >
-                    {fmtSigned(r.change)}
-                  </div>
-
-                  <div
-                    className={cn(
-                      "col-span-2 text-right tabular-nums font-semibold",
-                      up ? "text-emerald-400" : "text-red-400"
-                    )}
-                  >
-                    {fmtPct(r.changePct)}
-                  </div>
-
-                  <div className={cn("col-span-2 text-right tabular-nums", selected ? "text-white/80" : "text-white/70")}>
-                    {volLabel(r.volume, r.volumeLabel)}
-                  </div>
-
-                  <div className={cn("col-span-2 text-right text-[11px]", selected ? "text-white/60" : "text-white/45")}>
-                    {r.tag || "-"}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                <div className="col-span-2 text-right tabular-nums">{fmtPrice(r.price)}</div>
+                <div className={cn("col-span-2 text-right tabular-nums", chgClass(r.chg))}>
+                  {r.chg === undefined ? "—" : r.chg.toFixed(2)}
+                </div>
+                <div className={cn("col-span-2 text-right tabular-nums", pctClass(r.chgPct))}>
+                  {pct === null ? "—" : `${pct.toFixed(2)}%`}
+                </div>
+                <div className="col-span-2 text-right tabular-nums">{fmtNum(r.vol)}</div>
+                <div className="col-span-2 text-right tabular-nums">{fmtNum(r.float)}</div>
+              </div>
+            );
+          })
         )}
-      </div>
-
-      <div className="mt-2 text-[10px] text-white/35">
-        Hotkeys: <span className="text-white/60">↑/↓</span> select •{" "}
-        <span className="text-white/60">Enter</span> pick •{" "}
-        <span className="text-white/60">.</span> filter •{" "}
-        <span className="text-white/60">Esc</span> clear
       </div>
     </div>
   );

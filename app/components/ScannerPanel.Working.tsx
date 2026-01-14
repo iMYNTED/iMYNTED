@@ -8,7 +8,7 @@ type Row = {
   symbol: string;
   price: number;
   change: number;
-  changePct: number;
+  changePct: number; // may be NaN if API doesn't provide it
   volume: number;
   volumeLabel?: string;
   tag?: string;
@@ -28,7 +28,7 @@ function cn(...xs: Array<string | false | null | undefined>) {
 }
 
 /** Robust numeric parser:
- * supports numbers, "4.63%", "1,234.56", "+3.10", null/undefined
+ * supports: 123, "123", "1,234.56", "+3.10", "4.63%", null/undefined
  */
 function n(v: any): number {
   if (v === null || v === undefined) return NaN;
@@ -70,33 +70,28 @@ function volLabel(v: number, fallback?: string) {
   return String(Math.round(v));
 }
 
+/** Always compute pct if missing:
+ * pct = chg / (px - chg) * 100
+ */
+function computePct(price: number, change: number, provided: number) {
+  if (Number.isFinite(provided)) return provided;
+  if (!Number.isFinite(price) || !Number.isFinite(change)) return NaN;
+  const prev = price - change;
+  if (!Number.isFinite(prev) || prev === 0) return NaN;
+  return (change / prev) * 100;
+}
+
 function normalize(r: RawRow): Row {
   const symbol = String(r.symbol ?? r.ticker ?? r.sym ?? "")
     .toUpperCase()
     .trim();
 
-  // Price
   const price = n(r.price ?? r.px ?? r.last ?? r.lastPrice ?? r.ltp);
-
-  // Dollar change
   const change = n(r.change ?? r.chg ?? r.delta ?? r.net ?? r.netChange);
+  const providedPct = n(r.changePct ?? r.chgPct ?? r.pct ?? r.percent ?? r.netPct);
+  const changePct = computePct(price, change, providedPct);
 
-  // Percent change (may come as "4.63%")
-  let changePct = n(r.changePct ?? r.chgPct ?? r.pct ?? r.percent ?? r.netPct);
-
-  // Fallback: compute % from price + change
-  if (!Number.isFinite(changePct)) {
-    const px = price;
-    const chg = change;
-    const prev = px - chg;
-    if (Number.isFinite(px) && Number.isFinite(chg) && Number.isFinite(prev) && prev !== 0) {
-      changePct = (chg / prev) * 100;
-    }
-  }
-
-  // Volume
   const volume = n(r.volume ?? r.vol ?? r.v ?? r.totalVolume);
-
   const volumeLabel = (r.volumeLabel ?? r.volLabel ?? r.volume_label) as string | undefined;
   const tag = (r.tag ?? r.type ?? r.label) as string | undefined;
 
@@ -134,7 +129,7 @@ export default function ScannerPanel({
   const filterRef = useRef<HTMLInputElement | null>(null);
   const [sel, setSel] = useState(0);
 
-  // Poll scanner endpoint
+  // Poll endpoint
   useEffect(() => {
     let alive = true;
     let t: any;
@@ -175,6 +170,7 @@ export default function ScannerPanel({
     };
   }, [paused, pollMs, tab]);
 
+  // Filter rows
   const filtered = useMemo(() => {
     const qq = q.trim().toUpperCase();
     return rows.filter((r) => (qq ? r.symbol.includes(qq) : true));
@@ -185,6 +181,13 @@ export default function ScannerPanel({
     if (filtered.length === 0) setSel(0);
     else setSel((s) => Math.max(0, Math.min(s, filtered.length - 1)));
   }, [filtered.length]);
+
+  // Auto-select focused symbol if present
+  useEffect(() => {
+    if (!focusSymbol) return;
+    const idx = filtered.findIndex((r) => r.symbol === focusSymbol);
+    if (idx >= 0) setSel(idx);
+  }, [focusSymbol, filtered]);
 
   // Keep selected row visible
   useEffect(() => {
@@ -201,14 +204,14 @@ export default function ScannerPanel({
       const isTyping =
         t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || (t as any)?.isContentEditable;
 
-      // "." focuses scanner filter
+      // "." focuses filter
       if (!isTyping && e.key === ".") {
         e.preventDefault();
         filterRef.current?.focus();
         return;
       }
 
-      // Don't steal keys from other inputs
+      // don't steal keystrokes from other inputs
       if (isTyping && t !== filterRef.current) return;
 
       // Esc clears filter
@@ -328,8 +331,8 @@ export default function ScannerPanel({
         ) : (
           <div className="divide-y divide-white/5">
             {filtered.map((r, idx) => {
-              const up = (r.changePct ?? 0) >= 0;
               const selected = idx === sel;
+              const up = (r.changePct ?? 0) >= 0;
 
               return (
                 <button
@@ -354,7 +357,13 @@ export default function ScannerPanel({
                     )}
                   />
 
-                  <div className={cn("col-span-2 font-semibold", selected ? "text-white" : "text-white/85")}>
+                  <div
+                    className={cn(
+                      "col-span-2 font-semibold",
+                      selected ? "text-white" : "text-white/85",
+                      focusSymbol && r.symbol === focusSymbol && "text-emerald-200"
+                    )}
+                  >
                     {r.symbol}
                   </div>
 

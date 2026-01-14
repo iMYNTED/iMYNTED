@@ -4,9 +4,9 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 
 import NewsFeed from "@/app/components/NewsFeed";
 import ScannerPanel from "@/app/components/ScannerPanel";
-import PositionsPanel from "@/app/components/PositionsPanel";
 import { MarketDepthPanel } from "@/app/components/MarketDepthPanel";
 import { TapePanel } from "@/app/components/TapePanel";
+import PositionsPanel from "@/app/components/PositionsPanel";
 
 type Workspace = "full" | "news" | "l2" | "tape" | "trader";
 
@@ -26,373 +26,217 @@ function Card({
   className?: string;
 }) {
   return (
-    <section className={cn("rounded-2xl border border-white/10 bg-black/30", className)}>
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-        <div className="text-[12px] font-semibold text-white/80">{title}</div>
-        <div className="text-[11px] text-white/45">{right}</div>
+    <section
+      className={cn(
+        "rounded-2xl border border-white/10 bg-background min-h-0 flex flex-col overflow-hidden",
+        className
+      )}
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
+        <div className="text-sm font-semibold">{title}</div>
+        {right}
       </div>
-      <div className="min-h-0">{children}</div>
+      <div className="min-h-0 flex-1">{children}</div>
     </section>
   );
 }
 
-function isTicker(s: string) {
-  return /^[A-Z]{1,7}$/.test(s);
+function useLocalStorageState<T>(key: string, initial: T) {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const s = localStorage.getItem(key);
+      return s ? (JSON.parse(s) as T) : initial;
+    } catch {
+      return initial;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }, [key, value]);
+
+  return [value, setValue] as const;
 }
 
 export default function DashboardPage() {
-  const [workspace, setWorkspace] = useState<Workspace>("full");
-  const [symbol, setSymbol] = useState<string>("AAPL");
+  const [ws, setWs] = useLocalStorageState<Workspace>("msa_ws", "full");
+  const [symbol, setSymbol] = useLocalStorageState<string>("msa_symbol", "AAPL");
 
-  // panel toggles
-  const [newsOn, setNewsOn] = useState(true);
-  const [l2On, setL2On] = useState(true);
-  const [tapeOn, setTapeOn] = useState(true);
+  const [panels, setPanels] = useLocalStorageState<Record<string, boolean>>("msa_panels", {
+    news: true,
+    scanners: true,
+    l2: true,
+    tape: true,
+    positions: true,
+  });
 
-  // command bar
   const [cmd, setCmd] = useState("");
-  const [hud, setHud] = useState<string>(
-    "Type: ws trader | ws news | AAPL | news off | l2 on | tape off | help"
-  );
   const cmdRef = useRef<HTMLInputElement | null>(null);
 
-  const activeSymbol = useMemo(() => (symbol || "AAPL").toUpperCase().trim(), [symbol]);
+  const sym = useMemo(() => (symbol || "AAPL").toUpperCase().trim(), [symbol]);
 
-  function applyCommand(raw: string) {
-    const text = raw.trim();
-    if (!text) return;
-
-    const parts = text.split(/\s+/);
-    const a = parts[0]?.toLowerCase();
-    const b = parts[1]?.toLowerCase();
-
-    const maybeTicker = text.toUpperCase();
-    if (isTicker(maybeTicker) && parts.length === 1) {
-      setSymbol(maybeTicker);
-      setHud(`Symbol set: ${maybeTicker}`);
-      return;
-    }
-
-    if (a === "ws" && b) {
-      if (b === "full" || b === "news" || b === "l2" || b === "tape" || b === "trader") {
-        setWorkspace(b);
-        setHud(`Workspace: ${b.toUpperCase()}`);
-        return;
-      }
-      setHud(`Unknown workspace: ${b}`);
-      return;
-    }
-
-    if (a === "news" && b) {
-      const on = b === "on";
-      const off = b === "off";
-      if (on || off) {
-        setNewsOn(on);
-        setHud(`News: ${on ? "ON" : "OFF"}`);
-        return;
-      }
-    }
-
-    if ((a === "l2" || a === "depth") && b) {
-      const on = b === "on";
-      const off = b === "off";
-      if (on || off) {
-        setL2On(on);
-        setHud(`Level 2: ${on ? "ON" : "OFF"}`);
-        return;
-      }
-    }
-
-    if (a === "tape" && b) {
-      const on = b === "on";
-      const off = b === "off";
-      if (on || off) {
-        setTapeOn(on);
-        setHud(`Tape: ${on ? "ON" : "OFF"}`);
-        return;
-      }
-    }
-
-    if (a === "help") {
-      setHud("Commands: AAPL | ws full/news/l2/tape/trader | news on/off | l2 on/off | tape on/off");
-      return;
-    }
-
-    setHud(`Unknown command: ${text}`);
-  }
-
-  // Global hotkeys (don’t steal arrow keys from inputs)
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const isTyping =
-        t?.tagName === "INPUT" || t?.tagName === "TEXTAREA" || (t as any)?.isContentEditable;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "F1") { e.preventDefault(); setWs("full"); }
+      if (e.key === "F2") { e.preventDefault(); setWs("news"); }
+      if (e.key === "F3") { e.preventDefault(); setWs("l2"); }
+      if (e.key === "F4") { e.preventDefault(); setWs("tape"); }
+      if (e.key === "F5") { e.preventDefault(); setWs("trader"); }
 
-      // Ctrl+K focuses command bar
-      if (e.ctrlKey && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        cmdRef.current?.focus();
-        return;
-      }
-
-      if (isTyping) return;
-
-      if (e.key === "F1") {
-        e.preventDefault();
-        setWorkspace("full");
-      }
-      if (e.key === "F2") {
-        e.preventDefault();
-        setWorkspace("news");
-      }
-      if (e.key === "F3") {
-        e.preventDefault();
-        setWorkspace("l2");
-      }
-      if (e.key === "F4") {
-        e.preventDefault();
-        setWorkspace("tape");
-      }
-      if (e.key === "F5") {
-        e.preventDefault();
-        setWorkspace("trader");
-      }
-
-      // "/" focuses command bar (Bloomberg-ish)
-      if (e.key === "/") {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         cmdRef.current?.focus();
       }
-    };
-
+    }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [setWs]);
+
+  function setPanel(key: string, on: boolean) {
+    setPanels((p) => ({ ...p, [key]: on }));
+  }
+
+  function runCommand(input: string) {
+    const s = input.trim();
+    if (!s) return;
+
+    const parts = s.split(/\s+/);
+    const head = parts[0].toLowerCase();
+    const arg1 = parts[1]?.toLowerCase();
+
+    if (head === "help") return;
+
+    if (head === "ws" && arg1) {
+      if (["full", "news", "l2", "tape", "trader"].includes(arg1)) {
+        setWs(arg1 as Workspace);
+      }
+      return;
+    }
+
+    if (head === "sym" && parts[1]) {
+      setSymbol(parts[1].toUpperCase());
+      return;
+    }
+
+    if (/^[A-Za-z]{1,6}$/.test(parts[0])) {
+      setSymbol(parts[0].toUpperCase());
+      return;
+    }
+
+    if (["news", "l2", "tape", "scanners", "positions"].includes(head) && (arg1 === "on" || arg1 === "off")) {
+      setPanel(head, arg1 === "on");
+      return;
+    }
+  }
+
+  const show = {
+    news: panels.news && (ws === "full" || ws === "news" || ws === "trader"),
+    scanners: panels.scanners && (ws === "full" || ws === "news" || ws === "l2" || ws === "tape" || ws === "trader"),
+    l2: panels.l2 && (ws === "full" || ws === "l2" || ws === "trader"),
+    tape: panels.tape && (ws === "full" || ws === "tape" || ws === "trader"),
+    positions: panels.positions && (ws === "full" || ws === "trader"),
+  };
 
   return (
-    <div className="h-[calc(100vh-12px)] p-3">
-      {/* Top bar */}
-      <div className="mb-3 flex items-center gap-2">
-        <div className="text-[13px] font-semibold text-white/80">MySentinelAtlas • Dashboard</div>
+    <div className="h-[calc(100vh-64px)] min-h-0 p-3">
+      {/* ONE clean command bar (no duplicate lines) */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="rounded-xl border border-white/10 bg-background px-3 py-2 text-sm">
+          <span className="text-muted-foreground">Workspace:</span>{" "}
+          <span className="font-semibold">{ws.toUpperCase()}</span>{" "}
+          <span className="mx-2 text-muted-foreground">•</span>
+          <span className="text-muted-foreground">Symbol:</span>{" "}
+          <span className="font-semibold">{sym}</span>
+        </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <div className="hidden items-center gap-1 text-[11px] text-white/35 md:flex">
-            <span className="rounded-md border border-white/10 bg-black/30 px-2 py-1">F1</span>
-            <span>FULL</span>
-            <span className="ml-2 rounded-md border border-white/10 bg-black/30 px-2 py-1">F2</span>
-            <span>NEWS</span>
-            <span className="ml-2 rounded-md border border-white/10 bg-black/30 px-2 py-1">F3</span>
-            <span>L2</span>
-            <span className="ml-2 rounded-md border border-white/10 bg-black/30 px-2 py-1">F4</span>
-            <span>TAPE</span>
-            <span className="ml-2 rounded-md border border-white/10 bg-black/30 px-2 py-1">F5</span>
-            <span>TRADER</span>
-          </div>
+        <input
+          ref={cmdRef}
+          value={cmd}
+          onChange={(e) => setCmd(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              runCommand(cmd);
+              setCmd("");
+            }
+          }}
+          placeholder="Command… (ws trader | ws news | AAPL | news off | l2 on | tape off)   •   Ctrl+K"
+          className="h-10 w-[720px] max-w-full rounded-xl border border-white/10 bg-background px-3 text-sm outline-none focus:ring-2"
+        />
 
-          {/* ticker input */}
-          <input
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const v = (symbol || "AAPL").toUpperCase().trim();
-                setSymbol(v);
-                setHud(`Symbol set: ${v}`);
-              }
-            }}
-            spellCheck={false}
-            className="w-[110px] rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-[12px] font-semibold tracking-wider text-white/85 outline-none placeholder:text-white/30"
-            placeholder="AAPL"
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          {(["news", "scanners", "l2", "tape", "positions"] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setPanel(k, !panels[k])}
+              className={cn(
+                "rounded-xl border border-white/10 px-3 py-2 text-xs hover:bg-muted",
+                panels[k] ? "bg-muted" : ""
+              )}
+              title="Toggle panel"
+            >
+              {k.toUpperCase()}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Command bar */}
-      <div className="mb-3 grid grid-cols-12 gap-3">
-        <div className="col-span-12 lg:col-span-8">
-          <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
-            <div className="flex items-center gap-2">
-              <div className="text-[11px] text-white/45">Command</div>
-              <input
-                ref={cmdRef}
-                value={cmd}
-                onChange={(e) => setCmd(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    applyCommand(cmd);
-                    setCmd("");
-                  }
-                }}
-                spellCheck={false}
-                placeholder="Type: ws trader | ws news | AAPL | news off | l2 on | tape off | help"
-                className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-[12px] text-white/85 outline-none placeholder:text-white/30"
-              />
-              <button
-                onClick={() => {
-                  applyCommand(cmd);
-                  setCmd("");
-                }}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-white/75 hover:bg-white/10"
-              >
-                Enter
-              </button>
-            </div>
-            <div className="mt-2 text-[11px] text-white/40">{hud}</div>
-          </div>
-        </div>
-
-        <div className="col-span-12 lg:col-span-4">
-          <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-[11px] text-white/45">
-            Toggles: <span className="text-white/70">news {newsOn ? "on" : "off"}</span> •{" "}
-            <span className="text-white/70">l2 {l2On ? "on" : "off"}</span> •{" "}
-            <span className="text-white/70">tape {tapeOn ? "on" : "off"}</span> •{" "}
-            <span className="text-white/70">ws {workspace}</span>
-            <div className="mt-1 text-white/35">Tip: Ctrl+K focuses the command bar. “/” also focuses it.</div>
-          </div>
-        </div>
-      </div>
-
-      {/* MAIN GRID */}
-      <div className="h-[calc(100%-116px)] min-h-0 overflow-hidden">
-        <div className="h-full min-h-0 grid grid-cols-12 gap-3">
-          {/* LEFT */}
-          <div
-            className={cn(
-              "col-span-12 lg:col-span-4 h-full min-h-0 overflow-hidden",
-              workspace === "news" && "lg:col-span-12"
-            )}
-          >
-            <div className="h-full min-h-0 grid grid-rows-[220px_minmax(720px,1fr)_180px] gap-3 overflow-hidden">
-              <Card title="Positions" className="min-h-0 overflow-hidden">
-                <div className="h-full min-h-0 overflow-y-auto p-3">
-                  <PositionsPanel />
-                </div>
-              </Card>
-
-              <Card title="Scanners" className="min-h-0 overflow-hidden">
-                <div className="h-full min-h-0 overflow-y-auto p-3">
-                  <ScannerPanel
-                    symbol={activeSymbol}
-                    onPickSymbol={(s: string) => {
-                      setSymbol(s);
-                      setHud(`Symbol set: ${s} (scanner)`);
-                    }}
-                  />
-                </div>
-              </Card>
-
-              <Card
-                title="News"
-                className="min-h-0 overflow-hidden"
-                right={<span className="text-white/35">{newsOn ? "live" : "off"}</span>}
-              >
-                <div className="h-full min-h-0 overflow-y-auto p-3">
-                  {newsOn ? (
-                    <NewsFeed symbol={activeSymbol} />
-                  ) : (
-                    <div className="text-[12px] text-white/45">
-                      News is off. Type <span className="font-semibold text-white/70">news on</span>.
-                    </div>
-                  )}
-                </div>
-              </Card>
-            </div>
-          </div>
-
-          {/* MIDDLE */}
-          <div
-            className={cn(
-              "col-span-12 lg:col-span-5 h-full min-h-0 flex flex-col gap-3 overflow-hidden",
-              workspace === "l2" && "lg:col-span-12",
-              workspace === "tape" && "lg:col-span-12",
-              workspace === "news" && "hidden lg:flex"
-            )}
-          >
-            {l2On ? (
-              <Card
-                title="Level 2"
-                className="flex-1 min-h-0 overflow-hidden"
-                right={<span className="text-white/35">{activeSymbol}</span>}
-              >
-                <div className="h-full min-h-0 overflow-y-auto p-3">
-                  <MarketDepthPanel symbol={activeSymbol} />
-                </div>
-              </Card>
-            ) : (
-              <Card title="Level 2" className="flex-1 min-h-0 overflow-hidden">
-                <div className="h-full min-h-0 p-3 text-[12px] text-white/45">
-                  Level 2 is off. Type <span className="font-semibold text-white/70">l2 on</span>.
-                </div>
-              </Card>
-            )}
-
-            {tapeOn ? (
-              <Card
-                title="Tape"
-                className="h-[340px] min-h-0 overflow-hidden"
-                right={<span className="text-white/35">{activeSymbol}</span>}
-              >
-                <div className="h-full min-h-0 overflow-y-auto p-3">
-                  <TapePanel symbol={activeSymbol} />
-                </div>
-              </Card>
-            ) : (
-              <Card title="Tape" className="h-[340px] min-h-0 overflow-hidden">
-                <div className="h-full min-h-0 p-3 text-[12px] text-white/45">
-                  Tape is off. Type <span className="font-semibold text-white/70">tape on</span>.
-                </div>
-              </Card>
-            )}
-          </div>
-
-          {/* RIGHT */}
-          <div
-            className={cn(
-              "col-span-12 lg:col-span-3 h-full min-h-0 overflow-hidden",
-              workspace === "trader" && "lg:col-span-12",
-              workspace === "news" && "hidden lg:block"
-            )}
-          >
-            <Card title="Trader" className="h-full min-h-0 overflow-hidden">
-              <div className="h-full min-h-0 overflow-y-auto p-3">
-                <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-                  <div className="text-[12px] font-semibold text-white/80">Command Center (placeholder)</div>
-                  <div className="mt-2 text-[11px] text-white/50">
-                    Active Symbol: <span className="font-semibold text-white/80">{activeSymbol}</span>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => setWorkspace("full")}
-                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-white/75 hover:bg-white/10"
-                    >
-                      ws full
-                    </button>
-                    <button
-                      onClick={() => setWorkspace("news")}
-                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-white/75 hover:bg-white/10"
-                    >
-                      ws news
-                    </button>
-                    <button
-                      onClick={() => setWorkspace("l2")}
-                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-white/75 hover:bg-white/10"
-                    >
-                      ws l2
-                    </button>
-                    <button
-                      onClick={() => setWorkspace("tape")}
-                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-white/75 hover:bg-white/10"
-                    >
-                      ws tape
-                    </button>
-                  </div>
-
-                  <div className="mt-3 text-[10px] text-white/35">Tip: Ctrl+K focuses the command bar.</div>
-                </div>
-              </div>
+      {/* GRID: Scanners | News | (L2 + Tape) */}
+      <div className="grid h-[calc(100%-56px)] min-h-0 grid-cols-12 gap-3">
+        {/* Left: Scanners + Positions */}
+        <div className="col-span-12 lg:col-span-4 min-h-0 flex flex-col gap-3">
+          {show.scanners && (
+            <Card title="Scanners" className="min-h-0 flex-1">
+              <ScannerPanel />
             </Card>
-          </div>
+          )}
+
+          {show.positions && (
+            <Card title="Positions" className="min-h-0 flex-1">
+              <PositionsPanel />
+            </Card>
+          )}
+
+          {!show.scanners && !show.positions && (
+            <Card title="Left Column" className="min-h-0 flex-1">
+              <div className="p-4 text-sm text-muted-foreground">Turn on: scanners on / positions on</div>
+            </Card>
+          )}
+        </div>
+
+        {/* Middle: News (this is what your screenshot is missing) */}
+        <div className="col-span-12 lg:col-span-4 min-h-0 flex flex-col gap-3">
+          {show.news ? (
+            <Card title={`News — ${sym}`} className="min-h-0 flex-1">
+              <NewsFeed symbol={sym} />
+            </Card>
+          ) : (
+            <Card title="News" className="min-h-0 flex-1">
+              <div className="p-4 text-sm text-muted-foreground">Turn on: news on</div>
+            </Card>
+          )}
+        </div>
+
+        {/* Right: L2 + Tape */}
+        <div className="col-span-12 lg:col-span-4 min-h-0 flex flex-col gap-3">
+          {show.l2 && (
+            <Card title={`Level 2 — ${sym}`} className="min-h-0 flex-1">
+              <MarketDepthPanel symbol={sym} />
+            </Card>
+          )}
+
+          {show.tape && (
+            <Card title={`Tape — ${sym}`} className="min-h-0 flex-1">
+              <TapePanel symbol={sym} />
+            </Card>
+          )}
+
+          {!show.l2 && !show.tape && (
+            <Card title="Right Column" className="min-h-0 flex-1">
+              <div className="p-4 text-sm text-muted-foreground">Turn on: l2 on / tape on</div>
+            </Card>
+          )}
         </div>
       </div>
     </div>
