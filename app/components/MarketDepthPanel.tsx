@@ -23,9 +23,33 @@ function fmtPx(n?: number) {
 function fmtSz(n?: number) {
   if (n === undefined || n === null || Number.isNaN(Number(n))) return "—";
   const v = Number(n);
+
+  // keep true zeros as zero
+  if (v === 0) return "0";
+
+  // ✅ crypto often fractional — don't round into 0
+  if (v < 0.0001) return v.toExponential(2); // e.g. 3.4e-5
+  if (v < 1) {
+    const s = v.toFixed(6); // show up to 6 decimals
+    return s.replace(/0+$/, "").replace(/\.$/, ""); // trim trailing zeros
+  }
+
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
   if (v >= 1_000) return `${(v / 1_000).toFixed(2)}K`;
   return String(Math.round(v));
+}
+
+// ✅ more robust number parsing for crypto feeds (strings, commas, etc.)
+function toNum(x: any) {
+  if (x === null || x === undefined) return NaN;
+  if (typeof x === "number") return x;
+  if (typeof x === "string") {
+    const s = x.replace(/,/g, "").trim();
+    if (!s) return NaN;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : NaN;
+  }
+  return NaN;
 }
 
 function safeLevels(raw: any): Level[] {
@@ -33,14 +57,27 @@ function safeLevels(raw: any): Level[] {
   const out: Level[] = [];
 
   for (const x of arr) {
+    // array formats: [price, size] or ["price","size"]
     if (Array.isArray(x) && x.length >= 2) {
-      const px = Number(x[0]);
-      const sz = Number(x[1]);
+      const px = toNum(x[0]);
+      const sz = toNum(x[1]);
       if (Number.isFinite(px) && Number.isFinite(sz)) out.push({ px, sz });
       continue;
     }
-    const px = Number(x?.px ?? x?.price ?? x?.p);
-    const sz = Number(x?.sz ?? x?.size ?? x?.s);
+
+    const px = toNum(x?.px ?? x?.price ?? x?.p);
+
+    // ✅ IMPORTANT: crypto commonly uses qty/amount/q
+    const sz = toNum(
+      x?.sz ??
+        x?.size ??
+        x?.s ??
+        x?.qty ??
+        x?.quantity ??
+        x?.amount ??
+        x?.q
+    );
+
     if (Number.isFinite(px) && Number.isFinite(sz)) out.push({ px, sz });
   }
 
@@ -276,7 +313,9 @@ export function MarketDepthPanel({
       </div>
 
       {err ? (
-        <div className="border-b border-white/10 bg-black/35 px-3 py-2 text-xs text-red-500">{err}</div>
+        <div className="border-b border-white/10 bg-black/35 px-3 py-2 text-xs text-red-500">
+          {err}
+        </div>
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -324,7 +363,9 @@ export function MarketDepthPanel({
 
               <div className="col-span-2 tabular-nums text-emerald-400 relative">{fmtPx(b?.px)}</div>
               <div className="col-span-2 text-right tabular-nums relative text-white/85">{fmtSz(b?.sz)}</div>
-              <div className="col-span-1 text-right tabular-nums text-white/50 relative">{b ? `${bPct}%` : "—"}</div>
+              <div className="col-span-1 text-right tabular-nums text-white/50 relative">
+                {b ? `${bPct}%` : "—"}
+              </div>
 
               <div className="col-span-2 text-center tabular-nums relative">
                 <span className="inline-flex min-w-[2.5rem] justify-center rounded-md border border-white/10 bg-black/30 px-2 py-0.5 text-xs text-white/85">
@@ -332,7 +373,9 @@ export function MarketDepthPanel({
                 </span>
               </div>
 
-              <div className="col-span-1 text-right tabular-nums text-white/50 relative">{a ? `${aPct}%` : "—"}</div>
+              <div className="col-span-1 text-right tabular-nums text-white/50 relative">
+                {a ? `${aPct}%` : "—"}
+              </div>
               <div className="col-span-2 text-right tabular-nums relative text-white/85">{fmtSz(a?.sz)}</div>
               <div className="col-span-2 text-right tabular-nums text-red-400 relative">{fmtPx(a?.px)}</div>
             </div>

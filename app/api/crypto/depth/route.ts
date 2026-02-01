@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-type Level = { price: number; size: number };
+type Level = { px: number; sz: number; price?: number; size?: number };
 
 function normProductId(sym: string | null) {
   const raw = (sym || "BTC-USD").toUpperCase().trim();
@@ -17,9 +17,43 @@ function normProductId(sym: string | null) {
   return `${raw}-USD`;
 }
 
-function toNum(x: any) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : 0;
+function toNum(x: any): number {
+  if (x === null || x === undefined) return Number.NaN;
+  if (typeof x === "number") return x;
+  if (typeof x === "string") {
+    const s = x.replace(/,/g, "").trim();
+    if (!s) return Number.NaN;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : Number.NaN;
+  }
+  return Number.NaN;
+}
+
+function normalizeSide(rows: any, limit = 50): Level[] {
+  if (!Array.isArray(rows)) return [];
+
+  const out: Level[] = [];
+
+  for (const row of rows.slice(0, limit)) {
+    // Coinbase shape (level=2): [price, size, numOrders] as strings
+    if (Array.isArray(row) && row.length >= 2) {
+      const px = toNum(row[0]);
+      const sz = toNum(row[1]);
+      if (Number.isFinite(px) && Number.isFinite(sz) && sz > 0) {
+        out.push({ px, sz, price: px, size: sz });
+      }
+      continue;
+    }
+
+    // Fallback: object shapes (just in case)
+    const px = toNum(row?.px ?? row?.price ?? row?.p);
+    const sz = toNum(row?.sz ?? row?.size ?? row?.qty ?? row?.amount ?? row?.q);
+    if (Number.isFinite(px) && Number.isFinite(sz) && sz > 0) {
+      out.push({ px, sz, price: px, size: sz });
+    }
+  }
+
+  return out;
 }
 
 export async function GET(req: Request) {
@@ -27,7 +61,6 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const productId = normProductId(url.searchParams.get("symbol"));
 
-    // Coinbase Exchange public order book (level=2)
     const bookUrl = `https://api.exchange.coinbase.com/products/${encodeURIComponent(
       productId
     )}/book?level=2`;
@@ -35,13 +68,11 @@ export async function GET(req: Request) {
     const r = await fetch(bookUrl, {
       cache: "no-store",
       headers: {
-        // Some environments behave better with an explicit UA
         "User-Agent": "MySentinelAtlas/1.0",
         Accept: "application/json",
       },
     });
 
-    // If Coinbase throttles, return friendly empty book (don’t crash UI)
     if (r.status === 429) {
       return NextResponse.json(
         {
@@ -57,20 +88,8 @@ export async function GET(req: Request) {
 
     const j = await r.json();
 
-    // Coinbase shape: { bids: [[price,size,numOrders],...], asks: [[...]] }
-    const bids: Level[] = Array.isArray(j?.bids)
-      ? j.bids.slice(0, 25).map((row: any[]) => ({
-          price: toNum(row?.[0]),
-          size: toNum(row?.[1]),
-        }))
-      : [];
-
-    const asks: Level[] = Array.isArray(j?.asks)
-      ? j.asks.slice(0, 25).map((row: any[]) => ({
-          price: toNum(row?.[0]),
-          size: toNum(row?.[1]),
-        }))
-      : [];
+    const bids = normalizeSide(j?.bids, 50);
+    const asks = normalizeSide(j?.asks, 50);
 
     return NextResponse.json({
       ok: true,

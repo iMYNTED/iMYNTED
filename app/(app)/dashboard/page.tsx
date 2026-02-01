@@ -332,7 +332,6 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* ✅ FIX: force dark input so typing is visible */}
           <input
             ref={cmdRef}
             value={cmd}
@@ -412,8 +411,19 @@ export default function DashboardPage() {
           )}
 
           {show.positions && (
-            <Card title="Positions" className="flex-[2] min-h-0">
-              <PositionsPanel />
+            <Card title="Positions" className="flex-[3] min-h-0">
+              <PositionsPanel
+                refreshMs={2500}
+                onPick={(a, s) => {
+                  if (a === "crypto") {
+                    setAsset("crypto");
+                    setCryptoSymbol(normalizeSymbol("crypto", s));
+                  } else {
+                    setAsset("stock");
+                    setStockSymbol(normalizeSymbol("stock", s));
+                  }
+                }}
+              />
             </Card>
           )}
 
