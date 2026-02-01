@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "My Sentinel Atlas",
-  description: "Unified monitoring • Read-only aggregation • Not a broker",
+  title: {
+    default: "iMYNTED",
+    template: "%s | iMYNTED",
+  },
+  description: "The control layer above all brokers.",
 };
 
 export default function RootLayout({

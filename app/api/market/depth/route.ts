@@ -1,80 +1,119 @@
 import { NextResponse } from "next/server";
 
-type Level = { px: number; sz: number };
+type Level = { price: number; size: number };
 
-function toNum(v: unknown): number | null {
-  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
-  return Number.isFinite(n) ? n : null;
+function pickSym(s: string | null) {
+  const raw = (s || "AAPL").toUpperCase().trim();
+  return raw.includes("-") ? raw.split("-")[0] : raw; // BTC-USD -> BTC
 }
 
-function rand(min: number, max: number) {
-  return Math.random() * (max - min) + min;
+function isCryptoSymbol(rawParam: string) {
+  const s = (rawParam || "").toUpperCase().trim();
+  return s.includes("-USD") || ["BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AVAX", "BNB", "MATIC"].includes(s);
 }
 
-/**
- * Normalize unknown level shapes to {px, sz}
- * Accepts common variants: px/price, sz/size/qty
- */
-function normalizeLevel(l: any): Level | null {
-  const px = toNum(l?.px ?? l?.price ?? l?.p);
-  const sz = toNum(l?.sz ?? l?.size ?? l?.qty ?? l?.q);
-  if (px === null || sz === null) return null;
-  return { px, sz };
+/** ------------------ FREE price source (CoinGecko) ------------------ */
+const PRICE_TTL_MS = 20_000;
+const priceCache = new Map<string, { expiresAt: number; price: number }>();
+
+const CG_IDS: Record<string, string> = {
+  BTC: "bitcoin",
+  ETH: "ethereum",
+  SOL: "solana",
+  XRP: "ripple",
+  ADA: "cardano",
+  DOGE: "dogecoin",
+  AVAX: "avalanche-2",
+  BNB: "binancecoin",
+  MATIC: "polygon",
+};
+
+async function getCryptoUsdPrice(base: string): Promise<number | null> {
+  const id = CG_IDS[base];
+  if (!id) return null;
+
+  const key = `cg:${id}`;
+  const hit = priceCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.price;
+
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
+    id
+  )}&vs_currencies=usd`;
+
+  const r = await fetch(url, {
+    cache: "force-cache",
+    next: { revalidate: Math.ceil(PRICE_TTL_MS / 1000) },
+  });
+
+  if (!r.ok) return null;
+
+  const j = await r.json().catch(() => ({}));
+  const p = Number(j?.[id]?.usd);
+
+  if (!Number.isFinite(p) || p <= 0) return null;
+
+  priceCache.set(key, { price: p, expiresAt: Date.now() + PRICE_TTL_MS });
+  return p;
 }
 
-function genMockDepth(symbol: string): { bids: Level[]; asks: Level[]; source: string } {
-  const mid = symbol === "AAPL" ? 258 : symbol === "TSLA" ? 320 : 100;
-  const spread = rand(0.02, 0.08);
-
-  const bids: Level[] = Array.from({ length: 12 }).map((_, i) => ({
-    px: Number((mid - spread - i * rand(0.01, 0.06)).toFixed(2)),
-    sz: Math.floor(rand(50, 8000)),
-  }));
-
-  const asks: Level[] = Array.from({ length: 12 }).map((_, i) => ({
-    px: Number((mid + spread + i * rand(0.01, 0.06)).toFixed(2)),
-    sz: Math.floor(rand(50, 8000)),
-  }));
-
-  return { bids, asks, source: "mock" };
+/** ------------------ Stock demo base prices ------------------ */
+function midStock(symbol: string) {
+  if (symbol === "AAPL") return 185.12;
+  if (symbol === "TSLA") return 242.55;
+  if (symbol === "NVDA") return 912.35;
+  if (symbol === "SPY") return 490.08;
+  return 100;
 }
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const symbol = (url.searchParams.get("symbol") || "AAPL").toUpperCase();
-
   try {
-    // 🔁 If you already fetch upstream, normalize it like this:
-    // const upstream = await fetch("...", { headers: {...} });
-    // const raw = await upstream.json();
-    // const rawBids = raw.bids ?? raw.data?.bids ?? [];
-    // const rawAsks = raw.asks ?? raw.data?.asks ?? [];
-    // const bids = (rawBids as any[]).map(normalizeLevel).filter(Boolean) as Level[];
-    // const asks = (rawAsks as any[]).map(normalizeLevel).filter(Boolean) as Level[];
+    const url = new URL(req.url);
 
-    // ✅ default mock (stable)
-    const { bids, asks, source } = genMockDepth(symbol);
+    const symbolParam = (url.searchParams.get("symbol") || "AAPL").toUpperCase().trim();
+    const assetParam = (url.searchParams.get("asset") || "").toLowerCase().trim();
+
+    const base = pickSym(symbolParam);
+    const treatAsCrypto = assetParam === "crypto" || isCryptoSymbol(symbolParam);
+
+    let mid = midStock(base);
+
+    if (treatAsCrypto) {
+      const live = await getCryptoUsdPrice(base);
+      if (live != null) mid = live;
+      else {
+        // sensible fallback if unsupported coin
+        if (base === "BTC") mid = 43000;
+        else if (base === "ETH") mid = 2300;
+      }
+    }
+
+    // spread step: crypto needs bigger ticks than stocks
+    const step = treatAsCrypto
+      ? Math.max(0.01, mid * 0.00005) // ~0.005% tick
+      : 0.01;
+
+    // sizes: crypto smaller; stocks bigger
+    const sizeBase = treatAsCrypto ? 0.05 : 1000;
+    const sizeStep = treatAsCrypto ? 0.03 : 250;
+
+    const bids: Level[] = Array.from({ length: 25 }).map((_, i) => ({
+      price: Number((mid - step * (i + 1)).toFixed(2)),
+      size: Number((sizeBase + i * sizeStep).toFixed(4)),
+    }));
+
+    const asks: Level[] = Array.from({ length: 25 }).map((_, i) => ({
+      price: Number((mid + step * (i + 1)).toFixed(2)),
+      size: Number((sizeBase + i * sizeStep).toFixed(4)),
+    }));
 
     return NextResponse.json({
-      symbol,
-      bids,
-      asks,
-      source,
-      ts: new Date().toISOString(),
+      ok: true,
+      data: { bids, asks, ts: new Date().toISOString(), symbol: symbolParam, mid },
     });
   } catch (e: any) {
-    const { bids, asks } = genMockDepth(symbol);
-
     return NextResponse.json(
-      {
-        symbol,
-        bids,
-        asks,
-        source: "mock",
-        ts: new Date().toISOString(),
-        error: e?.message ?? "depth route error",
-      },
-      { status: 200 }
+      { ok: false, error: e?.message || "market depth failed", data: { bids: [], asks: [] } },
+      { status: 500 }
     );
   }
 }

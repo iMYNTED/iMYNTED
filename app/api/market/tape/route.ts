@@ -1,76 +1,118 @@
 import { NextResponse } from "next/server";
 
-type Print = {
-  ts: string;
-  price: number;
-  size: number;
-  side: "B" | "S" | "M";
+type Side = "B" | "S" | "M";
+type Row = { ts: string; price: number; size: number; side: Side };
+
+function pickSym(s: string | null) {
+  const raw = (s || "AAPL").toUpperCase().trim();
+  return raw.includes("-") ? raw.split("-")[0] : raw; // BTC-USD -> BTC
+}
+
+function isCryptoSymbol(raw: string) {
+  const s = (raw || "").toUpperCase().trim();
+  return s.includes("-USD") || ["BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AVAX", "BNB", "MATIC"].includes(s);
+}
+
+/** ------------------ FREE price source (CoinGecko) ------------------ */
+/**
+ * No key needed. We'll cache to avoid rate limits.
+ */
+const PRICE_TTL_MS = 20_000;
+const priceCache = new Map<string, { expiresAt: number; price: number }>();
+
+const CG_IDS: Record<string, string> = {
+  BTC: "bitcoin",
+  ETH: "ethereum",
+  SOL: "solana",
+  XRP: "ripple",
+  ADA: "cardano",
+  DOGE: "dogecoin",
+  AVAX: "avalanche-2",
+  BNB: "binancecoin",
+  MATIC: "polygon",
 };
 
-function nowIso() {
-  return new Date().toISOString();
+async function getCryptoUsdPrice(base: string): Promise<number | null> {
+  const id = CG_IDS[base];
+  if (!id) return null;
+
+  const key = `cg:${id}`;
+  const hit = priceCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.price;
+
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
+    id
+  )}&vs_currencies=usd`;
+
+  const r = await fetch(url, {
+    // allow Next to reuse a little
+    cache: "force-cache",
+    next: { revalidate: Math.ceil(PRICE_TTL_MS / 1000) },
+  });
+
+  if (!r.ok) return null;
+
+  const j = await r.json().catch(() => ({}));
+  const p = Number(j?.[id]?.usd);
+
+  if (!Number.isFinite(p) || p <= 0) return null;
+
+  priceCache.set(key, { price: p, expiresAt: Date.now() + PRICE_TTL_MS });
+  return p;
 }
 
-function rand(min: number, max: number) {
-  return min + Math.random() * (max - min);
-}
-
-function pick<T>(xs: T[]) {
-  return xs[Math.floor(Math.random() * xs.length)];
-}
-
-const BASE: Record<string, number> = {
-  AAPL: 258.0,
-  MSFT: 410.0,
-  NVDA: 327.0,
-  TSLA: 252.0,
-  AMD: 175.0,
-  META: 510.0,
-  AMZN: 185.0,
-  GOOGL: 165.0,
-  PLTR: 22.5,
-  SOFI: 8.2,
-};
-
-function baseFor(symbol: string) {
-  const s = symbol.toUpperCase().trim();
-  return BASE[s] ?? 100 + (s.charCodeAt(0) % 40) * 3;
-}
-
-function makePrint(symbol: string, last: number): Print {
-  const side = pick<Print["side"]>(["B", "S", "M"]);
-  const drift = rand(-0.08, 0.08);
-  const price = Math.max(0.01, last + drift);
-  const size =
-    side === "M"
-      ? Math.floor(rand(1, 400))
-      : Math.floor(rand(10, 5000));
-
-  return {
-    ts: nowIso(),
-    price: Number(price.toFixed(price >= 1 ? 2 : 4)),
-    size,
-    side,
-  };
+/** ------------------ Stock demo base prices ------------------ */
+function baseStockPrice(symbol: string) {
+  if (symbol === "AAPL") return 185.12;
+  if (symbol === "TSLA") return 242.55;
+  if (symbol === "NVDA") return 912.35;
+  if (symbol === "SPY") return 490.08;
+  return 100;
 }
 
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const symbol = (searchParams.get("symbol") || "AAPL").toUpperCase().trim();
-  const limit = Math.min(Number(searchParams.get("limit") || "120"), 500);
+  try {
+    const url = new URL(req.url);
 
-  // seed last around a reasonable base
-  let last = baseFor(symbol) * (1 + rand(-0.01, 0.01));
+    const symbolParam = (url.searchParams.get("symbol") || "AAPL").toUpperCase().trim();
+    const base = pickSym(symbolParam);
 
-  const prints: Print[] = [];
-  for (let i = 0; i < limit; i++) {
-    const p = makePrint(symbol, last);
-    prints.push(p);
-    last = p.price;
+    const assetParam = (url.searchParams.get("asset") || "").toLowerCase().trim();
+    const treatAsCrypto = assetParam === "crypto" || isCryptoSymbol(symbolParam);
+
+    // ✅ choose correct mid price
+    let mid = baseStockPrice(base);
+
+    if (treatAsCrypto) {
+      const live = await getCryptoUsdPrice(base);
+      if (live != null) mid = live;
+      else {
+        // fallback if unknown crypto
+        if (base === "BTC") mid = 43000;
+        else if (base === "ETH") mid = 2300;
+      }
+    }
+
+    // Demo prints (stable + "alive") around the mid
+    const now = Date.now();
+    const data: Row[] = Array.from({ length: 60 }).map((_, i) => {
+      const t = now - i * 900; // 0.9s apart
+      const wiggle = Math.sin((now / 1000 + i) * 0.9) * (treatAsCrypto ? mid * 0.0006 : mid * 0.0003);
+      const drift = ((now / 1000 + i) % 20) * (treatAsCrypto ? 0.02 : 0.01);
+      const price = Number((mid + wiggle + drift).toFixed(2));
+
+      const sizeBase = treatAsCrypto ? 0.02 : 100;
+      const size = Number((sizeBase + ((i * 17) % (treatAsCrypto ? 4 : 900)) * (treatAsCrypto ? 0.01 : 1)).toFixed(4));
+
+      const side: Side = i % 3 === 0 ? "B" : i % 3 === 1 ? "S" : "M";
+      return { ts: new Date(t).toISOString(), price, size, side };
+    });
+
+    return NextResponse.json({ ok: true, data, symbol: symbolParam, mid });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message || "market tape failed", data: [] },
+      { status: 500 }
+    );
   }
-
-  // newest first (tape look)
-  prints.reverse();
-
-  return NextResponse.json({ symbol, prints });
 }

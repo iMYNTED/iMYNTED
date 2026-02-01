@@ -2,6 +2,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+type AssetType = "stock" | "crypto";
+
 type Level = { px: number; sz: number };
 type Book = { bids: Level[]; asks: Level[] };
 
@@ -55,6 +57,7 @@ function buildSimBook(mid: number, depth = 12): Book {
     const bpx = +(mid - (i + 1) * tick).toFixed(2);
     const apx = +(mid + (i + 1) * tick).toFixed(2);
 
+    // keep “alive” but not crazy
     const bsz = Math.round(200 + Math.random() * 12000);
     const asz = Math.round(200 + Math.random() * 12000);
 
@@ -67,8 +70,20 @@ function buildSimBook(mid: number, depth = 12): Book {
 
 type PulseMap = Record<string, 1>;
 
-export function MarketDepthPanel({ symbol }: { symbol: string }) {
-  const sym = useMemo(() => (symbol || "AAPL").toUpperCase().trim(), [symbol]);
+export function MarketDepthPanel({
+  symbol,
+  asset = "stock",
+}: {
+  symbol: string;
+  asset?: AssetType;
+}) {
+  // normalize symbol by asset
+  const sym = useMemo(() => {
+    const s = (symbol || "").toUpperCase().trim();
+    if (!s) return asset === "crypto" ? "BTC-USD" : "AAPL";
+    if (asset === "crypto") return s.includes("-") ? s : `${s}-USD`;
+    return s.replace("-USD", "");
+  }, [symbol, asset]);
 
   const depth = 12;
 
@@ -97,21 +112,35 @@ export function MarketDepthPanel({ symbol }: { symbol: string }) {
   }
 
   async function fetchBookFromApi(): Promise<Book | null> {
-    const urls = [
-      `/api/market/depth?symbol=${encodeURIComponent(sym)}`,
-      `/api/market/l2?symbol=${encodeURIComponent(sym)}`,
-      `/api/market/book?symbol=${encodeURIComponent(sym)}`,
-    ];
+    const urls =
+      asset === "crypto"
+        ? [
+            `/api/crypto/depth?symbol=${encodeURIComponent(sym)}`,
+            `/api/crypto/book?symbol=${encodeURIComponent(sym)}`,
+          ]
+        : [
+            `/api/market/depth?symbol=${encodeURIComponent(sym)}`,
+            `/api/market/l2?symbol=${encodeURIComponent(sym)}`,
+            `/api/market/book?symbol=${encodeURIComponent(sym)}`,
+          ];
 
     for (const url of urls) {
-      const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) continue;
-      const raw = await res.json();
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) continue;
 
-      const bids = safeLevels(raw?.bids ?? raw?.bid ?? raw?.book?.bids).slice(0, 50);
-      const asks = safeLevels(raw?.asks ?? raw?.ask ?? raw?.book?.asks).slice(0, 50);
+        const raw = await res.json();
 
-      if (bids.length >= 2 && asks.length >= 2) return { bids, asks };
+        if (raw?.ok === false) continue;
+        const data = raw?.data ?? raw;
+
+        const bids = safeLevels(data?.bids ?? data?.bid ?? data?.book?.bids).slice(0, 50);
+        const asks = safeLevels(data?.asks ?? data?.ask ?? data?.book?.asks).slice(0, 50);
+
+        if (bids.length >= 2 && asks.length >= 2) return { bids, asks };
+      } catch {
+        continue;
+      }
     }
 
     return null;
@@ -127,7 +156,6 @@ export function MarketDepthPanel({ symbol }: { symbol: string }) {
         const pa = prev.asks?.[i];
         const na = next.asks?.[i];
 
-        // pulse on size changes (the bar “blinks” like a terminal)
         if (pb && nb && pb.sz !== nb.sz) pulseKey(`b_${i}`);
         if (pa && na && pa.sz !== na.sz) pulseKey(`a_${i}`);
       }
@@ -137,16 +165,15 @@ export function MarketDepthPanel({ symbol }: { symbol: string }) {
     setBook(next);
   }
 
-  // seed on symbol change (client only)
+  // seed on symbol/asset change (client only)
   useEffect(() => {
     setErr("");
     prevRef.current = null;
     setPulse({});
-    // seed mid and first sim render
     midRef.current = clamp(midRef.current + (Math.random() - 0.5) * 5, 1, 5000);
     apply(buildSimBook(midRef.current, depth));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sym]);
+  }, [sym, asset]);
 
   // poll loop (client only)
   useEffect(() => {
@@ -173,7 +200,6 @@ export function MarketDepthPanel({ symbol }: { symbol: string }) {
         }
 
         if (mode === "auto") {
-          // auto fallback to sim when api not present
           midRef.current = clamp(midRef.current + (Math.random() - 0.5) * 0.35, 1, 5000);
           apply(buildSimBook(midRef.current, depth));
         } else {
@@ -191,7 +217,7 @@ export function MarketDepthPanel({ symbol }: { symbol: string }) {
       clearInterval(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sym, mode]);
+  }, [sym, asset, mode]);
 
   const bids = Array.isArray(book.bids) ? book.bids : [];
   const asks = Array.isArray(book.asks) ? book.asks : [];
@@ -222,16 +248,25 @@ export function MarketDepthPanel({ symbol }: { symbol: string }) {
 
   return (
     <div className="h-full min-h-0 flex flex-col">
-      {/* top header (matches your screenshot info line) */}
-      <div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
-        <div className="text-sm font-semibold">Level 2</div>
-        <div className="text-[11px] text-muted-foreground">
+      {/* ✅ Header line stays dark */}
+      <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-black/40 px-3 py-2">
+        <div className="text-sm font-semibold text-white">
+          {asset === "crypto" ? "Order Book" : "Level 2"}
+        </div>
+
+        <div className="text-[11px] text-white/60">
           {sym} • bid {fmtPx(bestBid)} / ask {fmtPx(bestAsk)} / spr {spr}
         </div>
+
+        {/* ✅ FIX: remove bg-background (white) */}
         <select
           value={mode}
           onChange={(e) => setMode(e.target.value as any)}
-          className="h-8 rounded-md border border-white/10 bg-background px-2 text-xs"
+          className={cn(
+            "h-8 rounded-md border border-white/10 px-2 text-xs outline-none",
+            "bg-black/35 text-white",
+            "focus:ring-2 focus:ring-white/20"
+          )}
           title="Data source"
         >
           <option value="auto">Auto</option>
@@ -241,27 +276,23 @@ export function MarketDepthPanel({ symbol }: { symbol: string }) {
       </div>
 
       {err ? (
-        <div className="border-b border-white/10 px-3 py-2 text-xs text-red-500">{err}</div>
+        <div className="border-b border-white/10 bg-black/35 px-3 py-2 text-xs text-red-500">{err}</div>
       ) : null}
 
-      {/* table exactly like screenshot: Bids | Spread | Asks */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="grid grid-cols-12 border-b border-white/10 px-3 py-2 text-[11px] text-muted-foreground">
+        <div className="grid grid-cols-12 border-b border-white/10 px-3 py-2 text-[11px] text-white/60">
           <div className="col-span-5">Bids</div>
           <div className="col-span-2 text-center">Spread</div>
           <div className="col-span-5 text-right">Asks</div>
         </div>
 
-        <div className="grid grid-cols-12 border-b border-white/10 px-3 py-2 text-[11px] text-muted-foreground">
-          {/* left headers */}
+        <div className="grid grid-cols-12 border-b border-white/10 px-3 py-2 text-[11px] text-white/60">
           <div className="col-span-2">Px</div>
           <div className="col-span-2 text-right">Sz</div>
           <div className="col-span-1 text-right">Depth</div>
 
-          {/* spread header */}
           <div className="col-span-2 text-center">Spr</div>
 
-          {/* right headers */}
           <div className="col-span-1 text-right">Depth</div>
           <div className="col-span-2 text-right">Sz</div>
           <div className="col-span-2 text-right">Px</div>
@@ -285,39 +316,24 @@ export function MarketDepthPanel({ symbol }: { symbol: string }) {
               key={i}
               className={cn(
                 "relative grid grid-cols-12 px-3 py-1.5 text-sm border-b border-white/10",
-                i === 0 && "bg-muted/20"
+                i === 0 && "bg-white/5"
               )}
             >
-              {/* bid depth bar behind left section */}
-              <div
-                className="absolute inset-y-0 left-0"
-                style={barStyle("bid", bPct, bPulse)}
-              />
-              {/* ask depth bar behind right section (start at middle) */}
-              <div
-                className="absolute inset-y-0 left-1/2"
-                style={barStyle("ask", aPct, aPulse)}
-              />
+              <div className="absolute inset-y-0 left-0" style={barStyle("bid", bPct, bPulse)} />
+              <div className="absolute inset-y-0 left-1/2" style={barStyle("ask", aPct, aPulse)} />
 
-              {/* BIDS */}
               <div className="col-span-2 tabular-nums text-emerald-400 relative">{fmtPx(b?.px)}</div>
-              <div className="col-span-2 text-right tabular-nums relative">{fmtSz(b?.sz)}</div>
-              <div className="col-span-1 text-right tabular-nums text-muted-foreground relative">
-                {b ? `${bPct}%` : "—"}
-              </div>
+              <div className="col-span-2 text-right tabular-nums relative text-white/85">{fmtSz(b?.sz)}</div>
+              <div className="col-span-1 text-right tabular-nums text-white/50 relative">{b ? `${bPct}%` : "—"}</div>
 
-              {/* SPREAD column */}
               <div className="col-span-2 text-center tabular-nums relative">
-                <span className="inline-flex min-w-[2.5rem] justify-center rounded-md border border-white/10 bg-black/20 px-2 py-0.5 text-xs">
+                <span className="inline-flex min-w-[2.5rem] justify-center rounded-md border border-white/10 bg-black/30 px-2 py-0.5 text-xs text-white/85">
                   {rowSpr}
                 </span>
               </div>
 
-              {/* ASKS */}
-              <div className="col-span-1 text-right tabular-nums text-muted-foreground relative">
-                {a ? `${aPct}%` : "—"}
-              </div>
-              <div className="col-span-2 text-right tabular-nums relative">{fmtSz(a?.sz)}</div>
+              <div className="col-span-1 text-right tabular-nums text-white/50 relative">{a ? `${aPct}%` : "—"}</div>
+              <div className="col-span-2 text-right tabular-nums relative text-white/85">{fmtSz(a?.sz)}</div>
               <div className="col-span-2 text-right tabular-nums text-red-400 relative">{fmtPx(a?.px)}</div>
             </div>
           );

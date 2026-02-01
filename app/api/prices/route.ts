@@ -1,5 +1,18 @@
 import { NextResponse } from "next/server";
 
+type Row = {
+  symbol: string;
+  price: number | null;
+  chg: number | null;
+  chgPct: number | null;
+  ts: string;
+};
+
+function n(v: any): number | null {
+  const x = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(x) ? x : null;
+}
+
 export async function GET(request: Request) {
   const key = process.env.RAPIDAPI_KEY;
 
@@ -11,87 +24,115 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const tickers = searchParams.get("tickers") ?? "AAPL,TSLA";
+  const tickersRaw = searchParams.get("tickers") ?? "AAPL,TSLA,NVDA";
 
-  // ✅ RapidAPI values for Yahoo Finance 15
-  const RAPID_HOST = "yahoo-finance15.p.rapidapi.com";
-  const BASE_URL = "https://yahoo-finance15.p.rapidapi.com/api/v1/markets/news";
+  const symbols = tickersRaw
+    .split(/[,\s]+/g)
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean)
+    .slice(0, 50);
 
-  // ✅ Bulletproof URL builder (prevents malformed URLs / double ?)
-  const upstream = new URL(BASE_URL);
-  upstream.searchParams.set("ticker", tickers);
+  if (symbols.length === 0) {
+    return NextResponse.json(
+      { ok: false, error: "No tickers provided" },
+      { status: 400 }
+    );
+  }
 
-  const url = upstream.toString();
-  console.log("UPSTREAM URL:", url);
+  const symbolsPath = encodeURI(symbols.join(","));
+  const upstream = `https://yahoo-finance15.p.rapidapi.com/api/yahoo/qu/quote/${symbolsPath}`;
 
   try {
-    const response = await fetch(url, {
+    const res = await fetch(upstream, {
       headers: {
         "X-RapidAPI-Key": key,
-        "X-RapidAPI-Host": RAPID_HOST,
+        "X-RapidAPI-Host": "yahoo-finance15.p.rapidapi.com",
       },
       cache: "no-store",
     });
 
-    const text = await response.text();
+    const contentType = res.headers.get("content-type") || "";
+    const text = await res.text();
 
-    // If RapidAPI returns a non-JSON error body, show it clearly
+    if (!contentType.includes("application/json")) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Upstream returned non-JSON response",
+          upstream,
+          status: res.status,
+          contentType,
+          details: text.slice(0, 1200),
+        },
+        { status: 502 }
+      );
+    }
+
     let json: any;
     try {
       json = JSON.parse(text);
     } catch {
       return NextResponse.json(
-        { ok: false, status: response.status, error: "Non-JSON response", raw: text },
+        {
+          ok: false,
+          error: "Upstream JSON parse failed",
+          upstream,
+          status: res.status,
+          details: text.slice(0, 1200),
+        },
         { status: 502 }
       );
     }
 
-    // ✅ If upstream is error, pass it through so we can see message
-    if (!response.ok) {
+    if (!res.ok) {
       return NextResponse.json(
-        { ok: false, status: response.status, upstream: json },
+        {
+          ok: false,
+          error: `Upstream error (${res.status})`,
+          upstream,
+          details: json,
+        },
         { status: 502 }
       );
     }
 
-    // ✅ Normalize (works with Steady-style OR other feeds)
-    const items = json.body ?? json.items ?? json.data ?? [];
+    const body: any[] = Array.isArray(json?.body) ? json.body : [];
+    const now = new Date().toISOString();
 
-    const articles = (items ?? []).map((item: any) => ({
-      title: item.title ?? item.headline ?? null,
-      description: item.description ?? item.summary ?? null,
-      url: item.link ?? item.url ?? null,
-      source:
-        item.source ??
-        item.sourceName ??
-        item.publisher ??
-        item.provider ??
-        ((item.link ?? item.url)
-          ? new URL(item.link ?? item.url).hostname.replace(/^www\./, "")
-          : "Unknown"),
-      publishedAt: (item.pubDate ?? item.published_at ?? item.publishedAt)
-        ? new Date(item.pubDate ?? item.published_at ?? item.publishedAt).toISOString()
-        : null,
-      guid: item.guid ?? item.id ?? (item.link ?? item.url) ?? null,
-      tickers: tickers.split(",").map((t) => t.trim()).filter(Boolean),
-    }));
+    const normalized: Row[] = body.map((q) => {
+      const sym = String(q?.symbol || "").toUpperCase().trim();
 
-    // newest first
-    articles.sort((a: any, b: any) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
+      const price =
+        n(q?.regularMarketPrice) ?? n(q?.price) ?? n(q?.last) ?? n(q?.lastPrice);
 
-    return NextResponse.json({
-      ok: true,
-      count: articles.length,
-      articles,
+      const chg =
+        n(q?.regularMarketChange) ?? n(q?.change) ?? n(q?.netChange) ?? n(q?.chg);
+
+      const chgPct =
+        n(q?.regularMarketChangePercent) ??
+        n(q?.changePercent) ??
+        n(q?.pctChange) ??
+        n(q?.chgPct);
+
+      return { symbol: sym, price, chg, chgPct, ts: now };
     });
+
+    // keep order same as requested
+    const map = new Map(normalized.map((r) => [r.symbol, r]));
+    const ordered: Row[] = symbols.map(
+      (s) => map.get(s) || { symbol: s, price: null, chg: null, chgPct: null, ts: now }
+    );
+
+    return NextResponse.json({ ok: true, data: ordered }, { status: 200 });
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: err?.message ?? "RapidAPI request failed" },
+      {
+        ok: false,
+        error: "Fetch failed",
+        upstream,
+        details: String(err?.message ?? err),
+      },
       { status: 500 }
     );
   }
 }
-
-
-
-
