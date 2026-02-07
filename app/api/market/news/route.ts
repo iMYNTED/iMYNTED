@@ -4,7 +4,13 @@ type NewsItem = {
   id?: string;
   title: string;
   source?: string;
+
+  // ✅ keep your existing field
   published?: string;
+
+  // ✅ add alias field that your UI likely expects
+  ts?: string;
+
   summary?: string;
   url?: string;
 };
@@ -28,6 +34,27 @@ type BulkNewsResponse = {
   error?: string;
 };
 
+function toIso(maybe: any): string | undefined {
+  if (!maybe) return undefined;
+
+  // number → seconds or ms
+  if (typeof maybe === "number") {
+    const ms = maybe < 1e12 ? maybe * 1000 : maybe;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+  }
+
+  // string → date parse
+  if (typeof maybe === "string") {
+    const s = maybe.trim();
+    if (!s) return undefined;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+  }
+
+  return undefined;
+}
+
 function mock(symbol: string): NewsItem[] {
   const t = new Date().toISOString();
   return [
@@ -36,6 +63,7 @@ function mock(symbol: string): NewsItem[] {
       title: `${symbol}: Nuclear startups are back in vogue with small reactors, and big challenges`,
       source: "Yahoo Finance",
       published: t,
+      ts: t,
       summary:
         "Small modular reactor startups are betting that mass manufacturing will help them bring costs down.",
       url: "#",
@@ -45,6 +73,7 @@ function mock(symbol: string): NewsItem[] {
       title: `5 Companies Racing to Dethrone Tesla—And the One Already Winning`,
       source: "247wallst.com",
       published: t,
+      ts: t,
       summary:
         "Markets are watching delivery execution and demand trends across EV and energy.",
       url: "#",
@@ -54,6 +83,7 @@ function mock(symbol: string): NewsItem[] {
       title: `This Money Expert Is Sending Warning Signs About the Economy—and How To Protect Yourself`,
       source: "Yahoo Finance",
       published: t,
+      ts: t,
       summary: "Several experts weigh in on macro signals, rates, and positioning.",
       url: "#",
     },
@@ -78,8 +108,20 @@ function normalize(raw: any): NewsItem[] {
 
       const url = x?.url ?? x?.link ?? x?.canonical_url ?? x?.news_url;
       const source = x?.source ?? x?.publisher ?? x?.provider ?? x?.origin;
-      const published =
-        x?.published ?? x?.pubDate ?? x?.published_at ?? x?.date ?? x?.time;
+
+      // ✅ grab many timestamp shapes
+      const publishedRaw =
+        x?.published ??
+        x?.pubDate ??
+        x?.published_at ??
+        x?.publishedAt ??
+        x?.date ??
+        x?.time ??
+        x?.timestamp ??
+        x?.ts;
+
+      const publishedIso = toIso(publishedRaw) ?? new Date().toISOString();
+
       const summary =
         x?.summary ?? x?.description ?? x?.content ?? x?.snippet ?? "";
 
@@ -88,7 +130,13 @@ function normalize(raw: any): NewsItem[] {
         title: title.trim(),
         url: typeof url === "string" ? url : undefined,
         source: typeof source === "string" ? source : undefined,
-        published: typeof published === "string" ? published : undefined,
+
+        // ✅ ALWAYS ISO
+        published: publishedIso,
+
+        // ✅ alias for UI
+        ts: publishedIso,
+
         summary: typeof summary === "string" ? summary : undefined,
       } as NewsItem;
     })
@@ -127,11 +175,10 @@ export async function GET(req: Request) {
       .split(",")
       .map((s) => normSym(s))
       .filter(Boolean)
-      .slice(0, 30); // ✅ hard cap to protect you
+      .slice(0, 30);
 
     const rapidKey = process.env.RAPIDAPI_KEY;
 
-    // no key → mock counts so UI never breaks
     if (!rapidKey) {
       const itemsBySymbol: Record<string, NewsItem[]> = {};
       const counts: Record<string, number> = {};
@@ -153,7 +200,6 @@ export async function GET(req: Request) {
     }
 
     try {
-      // ✅ fetch in parallel, but keep it capped
       const results = await Promise.all(
         symbols.map(async (s) => {
           try {
@@ -203,7 +249,7 @@ export async function GET(req: Request) {
     }
   }
 
-  // ✅ SINGLE mode (unchanged): /api/market/news?symbol=AAPL
+  // ✅ SINGLE mode: /api/market/news?symbol=AAPL
   const symbol = normSym(url.searchParams.get("symbol") || "AAPL") || "AAPL";
   const rapidKey = process.env.RAPIDAPI_KEY;
 

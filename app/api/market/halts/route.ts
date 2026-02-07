@@ -70,10 +70,13 @@ function pickTag(xml: string, tag: string) {
 function guessSymbol(title: string, description: string) {
   let m = title.match(/Security\s+([A-Z.\-]{1,10})/i);
   if (m?.[1]) return normSym(m[1]);
+
   m = description.match(/\bSymbol\s*[:\-]\s*([A-Z.\-]{1,10})\b/i);
   if (m?.[1]) return normSym(m[1]);
+
   m = title.match(/\b([A-Z.\-]{1,10})\b/);
   if (m?.[1]) return normSym(m[1]);
+
   return "";
 }
 
@@ -135,14 +138,19 @@ async function getCachedOrFetch(): Promise<{
   provider: "nasdaq_rss" | "mock";
 }> {
   const now = Date.now();
+
   if (CACHE && now - CACHE.ts < CACHE_MS) {
-    return { items: CACHE.items, error: CACHE.error, provider: CACHE.error ? "mock" : "nasdaq_rss" };
+    return {
+      items: CACHE.items,
+      error: CACHE.error,
+      provider: CACHE.error ? "mock" : "nasdaq_rss",
+    };
   }
 
   try {
     const res = await fetch(FEED_URL, {
       cache: "no-store",
-      headers: { "User-Agent": "MySentinelAtlas/1.0 (+local dev)" },
+      headers: { "User-Agent": "iMynted/1.0 (+local dev)" },
     });
 
     if (!res.ok) {
@@ -180,7 +188,7 @@ export async function GET(req: Request) {
     return NextResponse.json(out);
   }
 
-  // ✅ BULK mode
+  // ✅ BULK mode: /api/market/halts?symbols=AAPL,TSLA
   const symbolsParam = url.searchParams.get("symbols");
   if (symbolsParam) {
     const symbols = symbolsParam
@@ -210,7 +218,7 @@ export async function GET(req: Request) {
     return NextResponse.json(out);
   }
 
-  // ✅ SINGLE mode
+  // ✅ SINGLE mode: /api/market/halts?symbol=AAPL
   const symbol = normSym(url.searchParams.get("symbol") || "AAPL") || "AAPL";
   const its = allItems.filter((x) => x.symbol === symbol);
 

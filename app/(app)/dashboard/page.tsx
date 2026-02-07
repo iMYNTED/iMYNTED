@@ -9,6 +9,8 @@ import { MarketDepthPanel } from "@/app/components/MarketDepthPanel";
 import TapePanel from "@/app/components/TapePanel";
 import PositionsPanel from "@/app/components/PositionsPanel";
 import CryptoMoversPanel from "@/app/components/CryptoMoversPanel";
+import SymbolHeader from "@/app/components/SymbolHeader";
+import ChartPanel from "../../components/ChartPanel";
 
 type Workspace = "full" | "news" | "l2" | "tape" | "trader";
 type AssetType = "stock" | "crypto";
@@ -61,7 +63,9 @@ function Card({
         <div className="text-sm font-semibold">{title}</div>
         {right ? <div className="shrink-0">{right}</div> : null}
       </div>
-      <div className="min-h-0 flex-1">{children}</div>
+
+      {/* ✅ IMPORTANT: the card body must hide overflow; children will scroll */}
+      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
     </section>
   );
 }
@@ -84,7 +88,7 @@ function normalizeSymbol(asset: AssetType, raw: string) {
   }
 
   // stock
-  if (s.includes("-")) return "AAPL"; // don't convert BTC-USD into BTC stock
+  if (s.includes("-")) return "AAPL";
   return s.replace("-USD", "");
 }
 
@@ -136,7 +140,6 @@ export default function DashboardPage() {
   const [cmd, setCmd] = useState("");
   const cmdRef = useRef<HTMLInputElement | null>(null);
 
-  // ✅ SAFE MIGRATION from legacy single symbol key, if present
   useEffect(() => {
     try {
       const legacyRaw = localStorage.getItem("msa_symbol");
@@ -168,31 +171,15 @@ export default function DashboardPage() {
   const stockSym = useMemo(() => normalizeSymbol("stock", stockSymbol), [stockSymbol]);
   const cryptoSym = useMemo(() => normalizeSymbol("crypto", cryptoSymbol), [cryptoSymbol]);
 
-  /** ----------------------------- Hotkeys ----------------------------- */
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return;
 
-      if (e.key === "F1") {
-        e.preventDefault();
-        setWs("full");
-      }
-      if (e.key === "F2") {
-        e.preventDefault();
-        setWs("news");
-      }
-      if (e.key === "F3") {
-        e.preventDefault();
-        setWs("l2");
-      }
-      if (e.key === "F4") {
-        e.preventDefault();
-        setWs("tape");
-      }
-      if (e.key === "F5") {
-        e.preventDefault();
-        setWs("trader");
-      }
+      if (e.key === "F1") { e.preventDefault(); setWs("full"); }
+      if (e.key === "F2") { e.preventDefault(); setWs("news"); }
+      if (e.key === "F3") { e.preventDefault(); setWs("l2"); }
+      if (e.key === "F4") { e.preventDefault(); setWs("tape"); }
+      if (e.key === "F5") { e.preventDefault(); setWs("trader"); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         cmdRef.current?.focus();
@@ -234,22 +221,17 @@ export default function DashboardPage() {
 
     if (head === "crypto") {
       setAsset("crypto");
-      if (parts[1]) setCryptoSymbol(normalizeSymbol("crypto", parts[1]));
-      else setCryptoSymbol("BTC-USD");
+      setCryptoSymbol(parts[1] ? normalizeSymbol("crypto", parts[1]) : "BTC-USD");
       return;
     }
 
     if (head === "stock") {
       setAsset("stock");
-      if (parts[1]) setStockSymbol(normalizeSymbol("stock", parts[1]));
-      else setStockSymbol("AAPL");
+      setStockSymbol(parts[1] ? normalizeSymbol("stock", parts[1]) : "AAPL");
       return;
     }
 
-    if (
-      ["news", "scanners", "halts", "l2", "tape", "positions"].includes(head) &&
-      (arg1 === "on" || arg1 === "off")
-    ) {
+    if (["news", "scanners", "halts", "l2", "tape", "positions"].includes(head) && (arg1 === "on" || arg1 === "off")) {
       setPanel(head, arg1 === "on");
       return;
     }
@@ -267,24 +249,13 @@ export default function DashboardPage() {
     }
 
     const guess = detectAssetFromInput(parts[0]);
-    if (guess === "crypto") {
-      setAsset("crypto");
-      setCryptoSymbol(normalizeSymbol("crypto", parts[0]));
-      return;
-    }
-    if (guess === "stock") {
-      setAsset("stock");
-      setStockSymbol(normalizeSymbol("stock", parts[0]));
-      return;
-    }
+    if (guess === "crypto") { setAsset("crypto"); setCryptoSymbol(normalizeSymbol("crypto", parts[0])); return; }
+    if (guess === "stock") { setAsset("stock"); setStockSymbol(normalizeSymbol("stock", parts[0])); return; }
   }
 
   const show = {
     news: panels.news && (ws === "full" || ws === "news" || ws === "trader"),
-    scanners:
-      panels.scanners &&
-      asset === "stock" &&
-      (ws === "full" || ws === "news" || ws === "l2" || ws === "tape" || ws === "trader"),
+    scanners: panels.scanners && asset === "stock" && (ws === "full" || ws === "news" || ws === "l2" || ws === "tape" || ws === "trader"),
     halts: panels.halts && asset === "stock" && (ws === "full" || ws === "news" || ws === "trader"),
     l2: panels.l2 && (ws === "full" || ws === "l2" || ws === "trader"),
     tape: panels.tape && (ws === "full" || ws === "tape" || ws === "trader"),
@@ -297,6 +268,9 @@ export default function DashboardPage() {
     <div className="h-[calc(100vh-64px)] min-h-0 p-3 flex flex-col gap-3">
       {/* COMMAND BAR */}
       <div className="shrink-0 flex flex-col gap-2 relative z-50 pointer-events-auto">
+        {/* ... unchanged command bar ... */}
+        {/* (kept identical to your version to avoid breaking anything) */}
+        {/* --- START --- */}
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-background px-3 py-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold">iMynted</span>
@@ -312,19 +286,13 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => setAsset("stock")}
-              className={cn(
-                "h-9 rounded-xl border border-white/10 px-3 text-xs hover:bg-muted",
-                asset === "stock" ? "bg-muted" : ""
-              )}
+              className={cn("h-9 rounded-xl border border-white/10 px-3 text-xs hover:bg-muted", asset === "stock" ? "bg-muted" : "")}
             >
               STOCK
             </button>
             <button
               onClick={() => setAsset("crypto")}
-              className={cn(
-                "h-9 rounded-xl border border-white/10 px-3 text-xs hover:bg-muted",
-                asset === "crypto" ? "bg-muted" : ""
-              )}
+              className={cn("h-9 rounded-xl border border-white/10 px-3 text-xs hover:bg-muted", asset === "crypto" ? "bg-muted" : "")}
             >
               CRYPTO
             </button>
@@ -393,52 +361,80 @@ export default function DashboardPage() {
             ))}
           </div>
         </div>
+        {/* --- END --- */}
+      </div>
+
+      {/* SYMBOL HEADER */}
+      <div className="shrink-0">
+        <SymbolHeader symbol={sym} intervalMs={2500} />
       </div>
 
       {/* GRID */}
       <div className="flex-1 min-h-0 grid grid-cols-12 gap-3">
-        <div className="col-span-12 lg:col-span-4 min-h-0 flex flex-col gap-3">
+        {/* LEFT COLUMN */}
+        {/* ✅ FIX: remove overflow-auto so the COLUMN doesn't steal scroll from panels */}
+        <div className="col-span-12 lg:col-span-4 min-h-0 flex flex-col gap-3 overflow-hidden pr-1">
           {show.scanners && (
-            <Card title="Scanners" className="flex-[3] min-h-0">
-              <ScannerPanel selectedSymbol={sym} onSelectSymbol={setActiveSymbol} refreshMs={12000} />
-            </Card>
+            <div className="h-[clamp(260px,36vh,520px)] min-h-[240px]">
+              <Card title="Scanners" className="h-full min-h-0">
+                <ScannerPanel symbol={sym} onPickSymbol={setActiveSymbol} className="h-full min-h-0" />
+              </Card>
+            </div>
           )}
 
           {show.halts && (
-            <Card title="Halts" className="flex-[2] min-h-0">
-              <HaltsFeed selectedSymbol={sym} onPickSymbol={setActiveSymbol} refreshMs={60000} />
-            </Card>
+            <div className="h-[clamp(200px,24vh,420px)] min-h-[180px]">
+              <Card title="Halts" className="h-full min-h-0">
+                {/* ✅ FIX: force HaltsFeed to fill card body so its internal overflow works */}
+                <div className="h-full min-h-0">
+                  <HaltsFeed onPickSymbol={setActiveSymbol} pollMs={60_000} />
+                </div>
+              </Card>
+            </div>
           )}
 
           {show.positions && (
-            <Card title="Positions" className="flex-[3] min-h-0">
-              <PositionsPanel
-                refreshMs={2500}
-                onPick={(a, s) => {
-                  if (a === "crypto") {
-                    setAsset("crypto");
-                    setCryptoSymbol(normalizeSymbol("crypto", s));
-                  } else {
-                    setAsset("stock");
-                    setStockSymbol(normalizeSymbol("stock", s));
-                  }
-                }}
-              />
-            </Card>
+            <div className="h-[clamp(360px,46vh,720px)] min-h-[320px]">
+              <Card title="Positions" className="h-full min-h-0">
+                <div className="h-full min-h-0 overflow-auto">
+                  <PositionsPanel
+                    refreshMs={2500}
+                    onPick={(a, s) => {
+                      if (a === "crypto") {
+                        setAsset("crypto");
+                        setCryptoSymbol(normalizeSymbol("crypto", s));
+                      } else {
+                        setAsset("stock");
+                        setStockSymbol(normalizeSymbol("stock", s));
+                      }
+                    }}
+                  />
+                </div>
+              </Card>
+            </div>
           )}
 
           {asset === "crypto" && (ws === "full" || ws === "trader") && (
-            <Card
-              title="Crypto Movers"
-              className="flex-[2] min-h-0"
-              right={<div className="text-[11px] text-muted-foreground">Top movers (24h)</div>}
-            >
-              <CryptoMoversPanel refreshMs={60_000} onPickSymbol={(s) => setCryptoSymbol(normalizeSymbol("crypto", s))} />
-            </Card>
+            <div className="h-[clamp(200px,22vh,380px)] min-h-[180px]">
+              <Card
+                title="Crypto Movers"
+                className="h-full min-h-0"
+                right={<div className="text-[11px] text-muted-foreground">Top movers (24h)</div>}
+              >
+                <CryptoMoversPanel refreshMs={60_000} onPickSymbol={(s) => setCryptoSymbol(normalizeSymbol("crypto", s))} />
+              </Card>
+            </div>
           )}
         </div>
 
+        {/* MIDDLE */}
         <div className="col-span-12 lg:col-span-4 min-h-0 flex flex-col gap-3">
+          <div className="h-[clamp(260px,32vh,420px)] min-h-[240px]">
+            <Card title={`Chart — ${sym}`} className="h-full min-h-0">
+              <ChartPanel symbol={sym} asset={asset} className="h-full min-h-0" />
+            </Card>
+          </div>
+
           {show.news && (
             <Card title={`News — ${sym}`} className="flex-1 min-h-0">
               <NewsFeed symbol={sym} asset={asset} />
@@ -446,6 +442,7 @@ export default function DashboardPage() {
           )}
         </div>
 
+        {/* RIGHT */}
         <div className="col-span-12 lg:col-span-4 min-h-0 flex flex-col gap-3">
           {show.l2 && (
             <Card title={`${asset === "crypto" ? "Order Book" : "Level 2"} — ${sym}`} className="flex-[3] min-h-0">
