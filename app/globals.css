@@ -2,20 +2,136 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ✅ LOCK THE APP BACK INTO DARK (prevents white screen / washed out UI) */
+/* Command Center responsive table columns */
+:root {
+  --pos-cols: 1fr 50px 80px 1fr;
+  --orders-cols: 1fr 55px 50px 70px;
+}
+@media (min-width: 768px) {
+  :root {
+    --pos-cols: 150px 60px 90px 90px 100px 100px 80px 100px 100px 90px;
+    --orders-cols: 160px 75px 75px 110px 100px 100px 100px 80px 1fr;
+  }
+}
+
+/* Hide scrollbar but keep scroll functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============================================================================
+   iMYNTED Theme Tokens (locks Tailwind "bg-background", "text-foreground", etc.)
+   This is the missing piece when components use bg-background / text-foreground.
+   ============================================================================ */
+
+:root {
+  /* shadcn-style tokens (HSL) */
+  --background: 222 49% 5%;        /* ~ #070B12 */
+  --foreground: 0 0% 98%;
+
+  --card: 222 49% 6%;
+  --card-foreground: 0 0% 98%;
+
+  --popover: 222 49% 6%;
+  --popover-foreground: 0 0% 98%;
+
+  --primary: 0 0% 98%;
+  --primary-foreground: 222 49% 5%;
+
+  --secondary: 222 20% 14%;
+  --secondary-foreground: 0 0% 98%;
+
+  --muted: 222 20% 12%;
+  --muted-foreground: 215 18% 70%;
+
+  --accent: 222 20% 14%;
+  --accent-foreground: 0 0% 98%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+
+  --border: 0 0% 100% / 0.10;
+  --input: 0 0% 100% / 0.10;
+  --ring: 0 0% 100% / 0.18;
+
+  --radius: 16px;
+}
+
+/* If you’re using a .dark class anywhere, keep it consistent */
+.dark {
+  --background: 222 49% 5%;
+  --foreground: 0 0% 98%;
+  --card: 222 49% 6%;
+  --card-foreground: 0 0% 98%;
+  --popover: 222 49% 6%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 222 49% 5%;
+  --secondary: 222 20% 14%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 222 20% 12%;
+  --muted-foreground: 215 18% 70%;
+  --accent: 222 20% 14%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 100% / 0.10;
+  --input: 0 0% 100% / 0.10;
+  --ring: 0 0% 100% / 0.18;
+}
+
+/* ============================================================================
+   iMYNTED Global Baseline (Dark lock + PWA-safe + iOS safe-areas)
+   ============================================================================ */
+
+/* ✅ Prevent "white flash" + ensure full-height layout */
 html,
 body {
   height: 100%;
+  min-height: 100%;
   background: #070b12;
   color: #ffffff;
+  margin: 0;
+  padding: 0;
 }
 
-/* ✅ FORCE INPUT TEXT VISIBILITY (prevents white-on-white) */
+/* ✅ Better text rendering */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+
+/* ✅ Avoid iOS bounce/overscroll glow & accidental horizontal scroll */
+body {
+  overscroll-behavior: none;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ✅ Ensure Next root fills the screen */
+#__next {
+  min-height: 100%;
+}
+
+/* ✅ App root container helpers (if you wrap with a main root div) */
+main,
+#app,
+.app-root {
+  min-height: 100%;
+}
+
+/* ✅ Force form control visibility (prevents white-on-white) */
 input,
 textarea,
 select {
   color: rgba(255, 255, 255, 0.92);
   caret-color: rgba(255, 255, 255, 0.92);
+  background-color: transparent;
 }
 
 input::placeholder,
@@ -24,7 +140,192 @@ textarea::placeholder {
   opacity: 1;
 }
 
-/* Optional: make selection readable */
+/* ✅ iOS input zoom prevention: keep font-size >= 16px on mobile */
+@media (max-width: 768px) {
+  input,
+  textarea,
+  select,
+  button {
+    font-size: 16px;
+  }
+}
+
+/* ✅ Selection readability */
 ::selection {
   background: rgba(255, 255, 255, 0.18);
+}
+
+/* ============================================================================
+   Safe-area handling (iPhone notch + bottom gesture bar)
+   ============================================================================ */
+
+/* Default safe-area vars */
+:root {
+  --safe-top: 0px;
+  --safe-right: 0px;
+  --safe-bottom: 0px;
+  --safe-left: 0px;
+}
+
+/* iOS notch devices */
+@supports (padding: env(safe-area-inset-top)) {
+  :root {
+    --safe-top: env(safe-area-inset-top);
+    --safe-right: env(safe-area-inset-right);
+    --safe-bottom: env(safe-area-inset-bottom);
+    --safe-left: env(safe-area-inset-left);
+  }
+}
+
+/* Apply safe-area padding in standalone PWA mode (Add to Home Screen) */
+@media (display-mode: standalone) {
+  body {
+    padding-top: var(--safe-top);
+    padding-right: var(--safe-right);
+    padding-bottom: var(--safe-bottom);
+    padding-left: var(--safe-left);
+  }
+}
+
+/* Also cover iOS Safari's standalone flag */
+@supports (-webkit-touch-callout: none) {
+  body {
+    padding-top: var(--safe-top);
+    padding-right: var(--safe-right);
+    padding-bottom: var(--safe-bottom);
+    padding-left: var(--safe-left);
+  }
+}
+
+/* ============================================================================
+   iOS PWA quirks
+   ============================================================================ */
+
+/* ✅ Prevent tap highlight */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ============================================================================
+   iMYNTED Scrollbar — dark track, thin emerald thumb
+   ============================================================================ */
+
+/* Webkit (Chrome, Edge, Safari) */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(52, 211, 153, 0.18);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(52, 211, 153, 0.38);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(52, 211, 153, 0.18) transparent;
+}
+
+/* ✅ Improve touch scrolling in panels if you use overflow-y: auto */
+.scroll-y {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ✅ Avoid accidental text selection in "terminal-like" UI controls (optional) */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ============================================================================
+   Mobile responsive — iOS + Android
+   ============================================================================ */
+
+/* Touch optimization */
+@media (hover: none) and (pointer: coarse) {
+  /* Bigger touch targets on mobile */
+  button, a, [role="button"] {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  /* Smoother scrolling */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Small screens: stack layouts, reduce padding */
+@media (max-width: 768px) {
+  /* Stat cards stack 2-col on mobile */
+  .grid-cols-4 { grid-template-columns: repeat(2, 1fr) !important; }
+  .grid-cols-3 { grid-template-columns: repeat(1, 1fr) !important; }
+
+  /* Reduce padding on mobile */
+  .px-5, .px-6 { padding-left: 12px !important; padding-right: 12px !important; }
+  .py-5, .py-6 { padding-top: 12px !important; padding-bottom: 12px !important; }
+
+  /* Smaller text for data density */
+  .text-\[20px\] { font-size: 16px !important; }
+  .text-\[18px\] { font-size: 15px !important; }
+  .text-\[16px\] { font-size: 14px !important; }
+
+  /* Market strip horizontal scroll */
+  .grid-cols-6 {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+
+  /* Tables: horizontal scroll container */
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Popup panels: fullscreen on mobile */
+  [style*="position: fixed"][style*="width: 1060"] {
+    width: 100vw !important;
+    height: 100vh !important;
+    left: 0 !important;
+    top: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  [style*="position: fixed"][style*="width: 980"] {
+    width: 100vw !important;
+    height: 100vh !important;
+    left: 0 !important;
+    top: 0 !important;
+    border-radius: 0 !important;
+  }
+}
+
+/* Medium screens: adjust grid columns */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .grid-cols-4 { grid-template-columns: repeat(2, 1fr) !important; }
+}
+
+/* Prevent pull-to-refresh on mobile browsers */
+html, body {
+  overscroll-behavior-y: contain;
+}
+
+/* Android Chrome address bar hide */
+@supports (-webkit-touch-callout: none) {
+  html {
+    height: -webkit-fill-available;
+  }
+  body {
+    min-height: -webkit-fill-available;
+  }
 }

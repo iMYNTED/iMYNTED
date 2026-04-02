@@ -1,14 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 
-export default function LoginPage() {
+function buildRedirectUrl(nextPath: string) {
+  if (typeof window === "undefined") {
+    return `http://localhost:3004/auth/callback?next=${encodeURIComponent(nextPath)}`;
+  }
+
+  const url = new URL("/auth/callback", window.location.origin);
+  url.searchParams.set("next", nextPath);
+  return url.toString();
+}
+
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const next = useMemo(() => searchParams.get("next") || "/dashboard", [searchParams]);
+  const callbackError = useMemo(() => searchParams.get("error"), [searchParams]);
 
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<string | null>(null);
@@ -18,18 +33,57 @@ export default function LoginPage() {
   const secondsLeft = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
   const inCooldown = secondsLeft > 0;
 
-  // If already logged in, don't let user sit on /login
+  // 🔥 Handle callback errors cleanly
   useEffect(() => {
+    if (!callbackError) return;
+
+    const lower = callbackError.toLowerCase();
+
+    if (lower.includes("code verifier") || lower.includes("no_session")) {
+      setStatus(
+        "Session mismatch. Open the magic link in the SAME browser you requested it from."
+      );
+      return;
+    }
+
+    if (lower.includes("rate limit")) {
+      setStatus("Too many requests. Please wait about a minute before trying again.");
+      setCooldownUntil(Date.now() + 60_000);
+      return;
+    }
+
+    if (callbackError === "missing_code") {
+      setStatus("Magic link was invalid or expired.");
+      return;
+    }
+
+    setStatus(callbackError);
+  }, [callbackError]);
+
+  // 🔥 Auto redirect if session exists
+  useEffect(() => {
+    let mounted = true;
+
     (async () => {
       const { data } = await supabase.auth.getSession();
-      if (data.session) router.replace(next);
+      if (!mounted) return;
+
+      if (data.session) {
+        router.replace(next);
+      }
     })();
+
+    return () => {
+      mounted = false;
+    };
   }, [router, next]);
 
   async function signIn() {
     setStatus(null);
 
-    if (!email.trim()) {
+    const cleanEmail = normalizeEmail(email);
+
+    if (!cleanEmail) {
       setStatus("Enter your email.");
       return;
     }
@@ -41,36 +95,49 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        // ✅ DEFAULT landing after auth
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
-      },
-    });
+    try {
+      const emailRedirectTo = buildRedirectUrl(next);
 
-    setLoading(false);
+      const { error } = await supabase.auth.signInWithOtp({
+        email: cleanEmail,
+        options: {
+          emailRedirectTo,
+        },
+      });
 
-    if (error) {
-      // Supabase rate-limit message you saw (35 sec)
-      const msg = error.message || "Login failed";
-      setStatus(msg);
+      if (error) {
+        const msg = error.message || "Login failed";
+        const lower = msg.toLowerCase();
 
-      if (msg.toLowerCase().includes("35 seconds")) {
-        setCooldownUntil(Date.now() + 35_000);
+        setStatus(msg);
+
+        // 🔥 FIX: handle ALL rate limits
+        if (
+          lower.includes("rate limit") ||
+          lower.includes("too many") ||
+          lower.includes("seconds")
+        ) {
+          setCooldownUntil(Date.now() + 60_000);
+        }
+
+        return;
       }
-      return;
-    }
 
-    setStatus("Check your email for the magic link.");
-    setCooldownUntil(Date.now() + 35_000);
+      setStatus(
+        `Magic link sent. Open it in THIS browser (${window.location.origin}).`
+      );
+
+      setCooldownUntil(Date.now() + 60_000);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
       <div className="w-full max-w-md border border-zinc-800 rounded-xl p-6 bg-zinc-950">
         <h1 className="text-xl font-semibold">Sign in</h1>
-        <p className="text-sm text-zinc-400 mt-1">Magic link to access My Sentinel Atlas.</p>
+        <p className="text-sm text-zinc-400 mt-1">Magic link to access iMYNTED.</p>
 
         <div className="mt-5 space-y-3">
           <input
@@ -78,6 +145,10 @@ export default function LoginPage() {
             placeholder="you@domain.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            inputMode="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            autoComplete="email"
           />
 
           <button
@@ -85,15 +156,37 @@ export default function LoginPage() {
             disabled={loading || inCooldown}
             className="w-full rounded-md bg-white text-black py-2 font-medium disabled:opacity-60"
           >
-            {inCooldown ? `Wait ${secondsLeft}s` : loading ? "Sending..." : "Send magic link"}
+            {inCooldown
+              ? `Wait ${secondsLeft}s`
+              : loading
+              ? "Sending..."
+              : "Send magic link"}
           </button>
 
           {status && <p className="text-sm text-zinc-300">{status}</p>}
+
+          <div className="pt-2 text-xs text-zinc-500">
+            <p>Origin: {typeof window !== "undefined" ? window.location.origin : "http://localhost:3004"}</p>
+            <p>Callback: /auth/callback</p>
+          </div>
         </div>
       </div>
     </main>
   );
 }
 
-
-
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-black text-white flex items-center justify-center px-6">
+          <div className="w-full max-w-md border border-zinc-800 rounded-xl p-6 bg-zinc-950">
+            <div className="text-sm text-zinc-400">Loading...</div>
+          </div>
+        </main>
+      }
+    >
+      <LoginInner />
+    </Suspense>
+  );
+}

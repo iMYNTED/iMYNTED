@@ -466,7 +466,7 @@ export default function HaltsFeed({
                   <div className="col-span-2 flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => onPickSymbol?.(sym)}
+                      onClick={() => { onPickSymbol?.(sym); try { window.dispatchEvent(new CustomEvent("imynted:openDetail", { detail: { symbol: sym, asset: "stock" } })); } catch {} }}
                       className="rounded-md bg-white/5 px-2 py-1 text-[12px] font-semibold text-white/90 hover:bg-white/10"
                       title="Click to set symbol"
                     >

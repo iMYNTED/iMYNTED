@@ -3,21 +3,21 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function GET(request: NextRequest) {
-  const url = new URL(request.url);
-  const code = url.searchParams.get("code");
-  const next = url.searchParams.get("next") ?? "/dashboard";
+  const requestUrl = new URL(request.url);
+  const code = requestUrl.searchParams.get("code");
+  const next = requestUrl.searchParams.get("next") || "/dashboard";
 
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!SUPABASE_URL || !SUPABASE_ANON) {
+  if (!supabaseUrl || !supabaseAnonKey) {
     return NextResponse.json(
       {
         ok: false,
         error: "Missing Supabase env vars",
         missing: {
-          NEXT_PUBLIC_SUPABASE_URL: !SUPABASE_URL,
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: !SUPABASE_ANON,
+          NEXT_PUBLIC_SUPABASE_URL: !supabaseUrl,
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: !supabaseAnonKey,
         },
       },
       { status: 500 }
@@ -25,48 +25,39 @@ export async function GET(request: NextRequest) {
   }
 
   if (!code) {
-    const back = new URL("/login", url.origin);
-    back.searchParams.set("next", next);
-    back.searchParams.set("error", "missing_code");
-    return NextResponse.redirect(back);
+    const loginUrl = new URL("/login", requestUrl.origin);
+    loginUrl.searchParams.set("next", next);
+    loginUrl.searchParams.set("error", "missing_code");
+    return NextResponse.redirect(loginUrl);
   }
 
-  const response = NextResponse.redirect(new URL(next, url.origin));
+  const redirectUrl = new URL(next, requestUrl.origin);
+  const response = NextResponse.redirect(redirectUrl);
 
-  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON, {
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();
       },
       setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => {
+        for (const { name, value, options } of cookiesToSet) {
           response.cookies.set(name, value, options);
-        });
+        }
       },
     },
   });
 
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
-  // 🔥 debugging (safe)
-  if (error) {
-    const back = new URL("/login", url.origin);
-    back.searchParams.set("next", next);
-    back.searchParams.set("error", error.message);
-    return NextResponse.redirect(back);
-  }
-
-  // If exchange succeeded but session is missing, treat as failure
-  if (!data?.session) {
-    const back = new URL("/login", url.origin);
-    back.searchParams.set("next", next);
-    back.searchParams.set("error", "no_session_returned");
-    return NextResponse.redirect(back);
+  if (error || !data?.session) {
+    const loginUrl = new URL("/login", requestUrl.origin);
+    loginUrl.searchParams.set("next", next);
+    loginUrl.searchParams.set(
+      "error",
+      error?.message || "no_session_returned"
+    );
+    return NextResponse.redirect(loginUrl);
   }
 
   return response;
 }
-
-
-
-
