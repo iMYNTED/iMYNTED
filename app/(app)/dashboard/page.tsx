@@ -371,7 +371,7 @@ export default function DashboardPage() {
   return (
     <div className="h-[calc(100vh-64px)] min-h-0 p-3 flex flex-col gap-3">
       {/* ── MOBILE HEADER ── */}
-      <div className="md:hidden shrink-0 rounded-lg border border-emerald-400/[0.08] px-3 py-2"
+      <div className="lg:hidden shrink-0 rounded-lg border border-emerald-400/[0.08] px-3 py-2"
         style={{ background: "linear-gradient(90deg, rgba(52,211,153,0.06) 0%, rgba(4,10,18,0.96) 40%)" }}>
         <div className="flex items-center justify-between gap-1.5">
           <div className="flex items-center gap-1.5 min-w-0">
@@ -402,7 +402,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── DESKTOP COMMAND BAR ── */}
-      <div className="shrink-0 hidden md:flex flex-col gap-2 relative z-50 pointer-events-auto">
+      <div className="shrink-0 hidden lg:flex flex-col gap-2 relative z-50 pointer-events-auto">
         {/* ... unchanged command bar ... */}
         {/* (kept identical to your version to avoid breaking anything) */}
         {/* --- START --- */}
@@ -527,12 +527,12 @@ export default function DashboardPage() {
       </div>
 
       {/* SYMBOL HEADER — desktop only */}
-      <div className="shrink-0 hidden md:block">
+      <div className="shrink-0 hidden lg:block">
         <SymbolHeader symbol={sym} intervalMs={2500} />
       </div>
 
       {/* ── MOBILE: single-panel view with bottom tabs ── */}
-      <div className="flex-1 min-h-0 flex flex-col md:hidden overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col lg:hidden overflow-hidden">
         <div className="flex-1 min-h-0 overflow-auto">
           {mobilePanel === "chart" && (
             <div className="h-full min-h-0 p-1">
@@ -607,7 +607,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ── DESKTOP: original grid layout ── */}
-      <div className="flex-1 min-h-0 hidden md:grid grid-cols-12 gap-3">
+      <div className="flex-1 min-h-0 hidden lg:grid grid-cols-12 gap-3">
         {/* LEFT COLUMN — resizable */}
         <div ref={leftColRef} className="col-span-12 lg:col-span-4 min-h-0 flex flex-col overflow-hidden pr-1">
           {/* Top section — only render when scanners or halts are visible */}
@@ -740,10 +740,10 @@ export default function DashboardPage() {
 
       {/* ── Trader overlay ── */}
       {traderOpen && (<>
-        <div className="fixed inset-0 z-[10001] hidden md:block bg-black/40 backdrop-blur-[2px]"
+        <div className="fixed inset-0 z-[10001] hidden lg:block bg-black/40 backdrop-blur-[2px]"
           onClick={() => setTraderOpen(false)} />
         {/* Mobile: fullscreen */}
-        <div className="fixed inset-0 z-[10002] md:hidden flex flex-col"
+        <div className="fixed inset-0 z-[10002] lg:hidden flex flex-col"
           style={{ background: "linear-gradient(135deg, #050d14 0%, #060e18 55%, #050c12 100%)" }}>
           <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-emerald-400/[0.08]"
             style={{ background: "linear-gradient(90deg, rgba(52,211,153,0.06) 0%, transparent 40%)" }}>
@@ -761,7 +761,7 @@ export default function DashboardPage() {
           </div>
         </div>
         {/* Desktop: floating popup */}
-        <div className="fixed z-[10002] hidden md:flex flex-col rounded-sm border border-emerald-400/15 overflow-hidden"
+        <div className="fixed z-[10002] hidden lg:flex flex-col rounded-sm border border-emerald-400/15 overflow-hidden"
           style={{ top: "60px", left: "50%", transform: "translateX(-50%)", width: "480px", maxHeight: "calc(100vh - 80px)",
             background: "linear-gradient(135deg, #050d14 0%, #060e18 55%, #050c12 100%)",
             boxShadow: "0 0 0 1px rgba(52,211,153,0.08), 0 25px 60px rgba(0,0,0,0.7)" }}>
