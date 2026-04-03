@@ -167,6 +167,22 @@ function LegalFooter() {
   );
 }
 
+const TOP_NAV = [
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/scanner",   label: "Scanner"   },
+  { href: "/options",   label: "Options"   },
+  { href: "/futures",   label: "Futures"   },
+  { href: "/accounts",  label: "Accounts"  },
+  { href: "/settings",  label: "Settings"  },
+] as const;
+
+function pageLabel(pathname: string) {
+  const match = [...TOP_NAV].find(n => pathname === n.href || pathname.startsWith(n.href + "/"));
+  if (match) return match.label;
+  const seg = pathname.split("/").filter(Boolean).pop() || "";
+  return seg.charAt(0).toUpperCase() + seg.slice(1);
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
   const isDashboard = pathname === "/dashboard" || pathname.startsWith("/dashboard/");
@@ -197,21 +213,46 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
           {/* Main column */}
           <div className="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
-            {/* Frame bar: HIDE on /dashboard, SHOW elsewhere */}
+            {/* Top nav bar: HIDE on /dashboard, SHOW everywhere else */}
             {!isDashboard ? (
-              <div className="shrink-0 h-10 md:h-16 border-b border-white/10 bg-black/30">
-                <div className="h-full px-3 flex items-center gap-2">
+              <div className="shrink-0 border-b border-emerald-400/[0.08] bg-black/60 backdrop-blur-sm"
+                style={{ background: "linear-gradient(90deg, rgba(4,10,18,0.98) 0%, rgba(2,6,12,0.99) 100%)" }}>
+                <div className="flex items-center gap-0 h-11 px-3">
                   {/* Spacer for mobile hamburger */}
-                  <div className="w-8 md:hidden" />
-                  <div className="hidden md:flex items-center gap-1">
-                    <span className="h-2 w-2 rounded-full bg-white/20" />
-                    <span className="h-2 w-2 rounded-full bg-white/15" />
-                    <span className="h-2 w-2 rounded-full bg-white/10" />
+                  <div className="w-9 shrink-0 md:hidden" />
+
+                  {/* Page title — mobile */}
+                  <span className="md:hidden text-[12px] font-bold text-white/80 tracking-wide mr-3">
+                    {pageLabel(pathname)}
+                  </span>
+
+                  {/* Nav links — scrollable row on mobile */}
+                  <div className="flex items-center gap-1 overflow-x-auto scrollbar-none flex-1 min-w-0">
+                    {TOP_NAV.map(n => {
+                      const active = pathname === n.href || pathname.startsWith(n.href + "/");
+                      return (
+                        <a
+                          key={n.href}
+                          href={n.href}
+                          className={cn(
+                            "shrink-0 px-3 py-1.5 rounded-sm text-[11px] font-semibold tracking-wide transition-colors whitespace-nowrap",
+                            active
+                              ? "bg-emerald-400/[0.12] text-emerald-400 border border-emerald-400/20"
+                              : "text-white/35 hover:text-white/70 hover:bg-white/[0.05]"
+                          )}
+                        >
+                          {n.label}
+                        </a>
+                      );
+                    })}
                   </div>
 
-                  <span className="ml-2 text-[11px] text-white/40">iMYNTED Terminal</span>
-
-                  <div className="ml-auto text-[11px] text-white/35">{/* status later */}</div>
+                  {/* Live dot */}
+                  <div className="shrink-0 ml-2 flex items-center gap-1.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"
+                      style={{ boxShadow: "0 0 5px rgba(52,211,153,0.7)" }} />
+                    <span className="hidden md:inline text-[10px] text-emerald-400/60 font-semibold tracking-wider uppercase">Live</span>
+                  </div>
                 </div>
               </div>
             ) : null}
