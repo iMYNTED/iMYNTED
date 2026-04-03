@@ -40,16 +40,6 @@ export default function HomePage() {
             filter: "drop-shadow(0 0 40px rgba(52,211,153,0.7)) drop-shadow(0 0 16px rgba(52,211,153,0.45)) saturate(1.3)",
           }}
         />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/brand/imynted-lockup-transparent.png"
-          alt="iMYNTED"
-          width={200}
-          style={{
-            display: "block",
-            filter: "drop-shadow(0 0 16px rgba(52,211,153,0.5))",
-          }}
-        />
         <p className="text-[13px] text-zinc-400 text-center max-w-xs leading-snug">
           The control layer above all brokers, all assets, and all markets.
         </p>
