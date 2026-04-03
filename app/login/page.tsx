@@ -27,6 +27,7 @@ function LoginInner() {
 
   const [email, setEmail] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [tosAccepted, setTosAccepted] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [cooldownUntil, setCooldownUntil] = useState<number>(0);
   const [loading, setLoading] = useState(false);
@@ -91,6 +92,11 @@ function LoginInner() {
 
     if (!inviteCode.trim()) {
       setStatus("Enter your invite code.");
+      return;
+    }
+
+    if (!tosAccepted) {
+      setStatus("You must agree to the Terms of Service and Privacy Policy to continue.");
       return;
     }
 
@@ -178,9 +184,27 @@ function LoginInner() {
             autoComplete="email"
           />
 
+          <label className="flex items-start gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={tosAccepted}
+              onChange={(e) => setTosAccepted(e.target.checked)}
+              className="mt-0.5 shrink-0 accent-emerald-400"
+            />
+            <span className="text-xs text-zinc-400 leading-snug">
+              I have read and agree to the{" "}
+              <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline text-zinc-300 hover:text-white">Terms of Service</a>
+              {" "}and{" "}
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline text-zinc-300 hover:text-white">Privacy Policy</a>
+              . I understand that iMYNTED is a financial data platform for informational purposes only and is{" "}
+              <span className="font-semibold text-zinc-200">not investment advice</span>.
+              Trading involves significant risk of loss.
+            </span>
+          </label>
+
           <button
             onClick={signIn}
-            disabled={loading || inCooldown}
+            disabled={loading || inCooldown || !tosAccepted}
             className="w-full rounded-md bg-white text-black py-2 font-medium disabled:opacity-60"
           >
             {inCooldown
