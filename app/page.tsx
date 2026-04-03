@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-
+import Image from "next/image";
 
 const NAV_OPTIONS = [
   { href: "/dashboard", label: "Dashboard",  desc: "Full terminal — chart, scanner, tape, L2", icon: "▦" },
@@ -29,16 +29,16 @@ export default function HomePage() {
 
       {/* Logo + brand */}
       <div className="flex flex-col items-center gap-3 mb-10">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <Image
           src="/brand/imynted-mark-512.png"
           alt="iMYNTED"
-          width={160}
-          height={160}
+          width={110}
+          height={110}
+          priority
+          className="object-contain"
           style={{
             mixBlendMode: "screen",
-            filter: "contrast(1.6) brightness(1.05) drop-shadow(0 0 32px rgba(52,211,153,0.55)) drop-shadow(0 0 8px rgba(52,211,153,0.3))",
-            display: "block",
+            filter: "drop-shadow(0 0 32px rgba(52,211,153,0.55)) drop-shadow(0 0 8px rgba(52,211,153,0.3))",
           }}
         />
         <p className="text-[13px] text-zinc-400 text-center max-w-xs leading-snug">
@@ -60,17 +60,17 @@ export default function HomePage() {
             onClick={() => authed ? router.push(n.href) : router.push("/login")}
             className="relative flex flex-col items-start gap-1.5 rounded-lg px-4 py-3 text-left transition-all group overflow-hidden"
             style={{
-              background: "#000",
-              border: "1px solid rgba(52,211,153,0.25)",
-              boxShadow: "0 0 12px rgba(52,211,153,0.08)",
+              background: "linear-gradient(135deg, rgba(52,211,153,0.07) 0%, rgba(0,0,0,0) 100%)",
+              border: "1px solid rgba(52,211,153,0.18)",
+              boxShadow: "inset 0 1px 0 rgba(52,211,153,0.08)",
             }}
             onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.border = "1px solid rgba(52,211,153,0.55)";
-              (e.currentTarget as HTMLElement).style.boxShadow = "0 0 18px rgba(52,211,153,0.2)";
+              (e.currentTarget as HTMLElement).style.border = "1px solid rgba(52,211,153,0.45)";
+              (e.currentTarget as HTMLElement).style.boxShadow = "0 0 18px rgba(52,211,153,0.15), inset 0 1px 0 rgba(52,211,153,0.15)";
             }}
             onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.border = "1px solid rgba(52,211,153,0.25)";
-              (e.currentTarget as HTMLElement).style.boxShadow = "0 0 12px rgba(52,211,153,0.08)";
+              (e.currentTarget as HTMLElement).style.border = "1px solid rgba(52,211,153,0.18)";
+              (e.currentTarget as HTMLElement).style.boxShadow = "inset 0 1px 0 rgba(52,211,153,0.08)";
             }}
           >
             <span className="text-emerald-400 text-lg leading-none font-mono"
@@ -87,9 +87,9 @@ export default function HomePage() {
           href="/login"
           className="rounded-lg text-emerald-400 text-sm font-bold px-10 py-3 tracking-wide transition-all"
           style={{
-            background: "#000",
+            background: "linear-gradient(135deg, rgba(52,211,153,0.07) 0%, rgba(0,0,0,0) 100%)",
             border: "1px solid rgba(52,211,153,0.45)",
-            boxShadow: "0 0 18px rgba(52,211,153,0.2)",
+            boxShadow: "0 0 18px rgba(52,211,153,0.2), inset 0 1px 0 rgba(52,211,153,0.1)",
             textShadow: "0 0 10px rgba(52,211,153,0.5)",
           }}
         >
