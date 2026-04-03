@@ -85,10 +85,12 @@ export default function HomePage() {
       {authed === false && (
         <a
           href="/login"
-          className="rounded-lg text-black text-sm font-bold px-8 py-3 tracking-wide transition-all"
+          className="rounded-lg text-emerald-400 text-sm font-bold px-10 py-3 tracking-wide transition-all"
           style={{
-            background: "linear-gradient(135deg, #34d399 0%, #10b981 100%)",
-            boxShadow: "0 0 24px rgba(52,211,153,0.4), 0 2px 8px rgba(0,0,0,0.4)",
+            background: "linear-gradient(135deg, rgba(52,211,153,0.07) 0%, rgba(0,0,0,0) 100%)",
+            border: "1px solid rgba(52,211,153,0.45)",
+            boxShadow: "0 0 18px rgba(52,211,153,0.2), inset 0 1px 0 rgba(52,211,153,0.1)",
+            textShadow: "0 0 10px rgba(52,211,153,0.5)",
           }}
         >
           Sign In to Access
