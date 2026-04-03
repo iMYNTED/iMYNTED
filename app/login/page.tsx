@@ -26,6 +26,7 @@ function LoginInner() {
   const callbackError = useMemo(() => searchParams.get("error"), [searchParams]);
 
   const [email, setEmail] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [cooldownUntil, setCooldownUntil] = useState<number>(0);
   const [loading, setLoading] = useState(false);
@@ -88,6 +89,11 @@ function LoginInner() {
       return;
     }
 
+    if (!inviteCode.trim()) {
+      setStatus("Enter your invite code.");
+      return;
+    }
+
     if (inCooldown) {
       setStatus(`Wait ${secondsLeft}s then try again.`);
       return;
@@ -96,6 +102,18 @@ function LoginInner() {
     setLoading(true);
 
     try {
+      // Validate invite code first
+      const check = await fetch("/api/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: inviteCode }),
+      });
+      if (!check.ok) {
+        const { error } = await check.json();
+        setStatus(error || "Invalid invite code.");
+        return;
+      }
+
       const emailRedirectTo = buildRedirectUrl(next);
 
       const { error } = await supabase.auth.signInWithOtp({
@@ -140,6 +158,15 @@ function LoginInner() {
         <p className="text-sm text-zinc-400 mt-1">Magic link to access iMYNTED.</p>
 
         <div className="mt-5 space-y-3">
+          <input
+            className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 outline-none"
+            placeholder="Invite code"
+            value={inviteCode}
+            onChange={(e) => setInviteCode(e.target.value)}
+            autoCapitalize="characters"
+            autoCorrect="off"
+            autoComplete="off"
+          />
           <input
             className="w-full rounded-md bg-zinc-900 border border-zinc-800 px-3 py-2 outline-none"
             placeholder="you@domain.com"
