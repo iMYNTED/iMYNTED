@@ -30,13 +30,12 @@ export default function HomePage() {
       <div className="flex flex-col items-center gap-3 mb-10">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/brand/imynted-mark-transparent.png"
+          src="/brand/imynted-mark-512.png"
           alt="iMYNTED"
-          width={220}
-          height={220}
+          width={240}
+          height={240}
           style={{
             display: "block",
-            filter: "drop-shadow(0 0 20px rgba(52,211,153,0.55)) drop-shadow(0 0 6px rgba(52,211,153,0.35))",
           }}
         />
         <p className="text-[13px] text-zinc-400 text-center max-w-xs leading-snug">
