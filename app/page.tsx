@@ -30,15 +30,15 @@ export default function HomePage() {
       {/* Logo + brand */}
       <div className="flex flex-col items-center gap-3 mb-10">
         <div style={{
-          maskImage: "radial-gradient(ellipse 75% 75% at 50% 42%, black 45%, transparent 80%)",
-          WebkitMaskImage: "radial-gradient(ellipse 75% 75% at 50% 42%, black 45%, transparent 80%)",
+          maskImage: "radial-gradient(ellipse 85% 90% at 50% 50%, black 55%, transparent 85%)",
+          WebkitMaskImage: "radial-gradient(ellipse 85% 90% at 50% 50%, black 55%, transparent 85%)",
           filter: "drop-shadow(0 0 32px rgba(52,211,153,0.55)) drop-shadow(0 0 8px rgba(52,211,153,0.3))",
         }}>
           <Image
             src="/brand/imynted-mark-512.png"
             alt="iMYNTED"
-            width={130}
-            height={130}
+            width={160}
+            height={160}
             priority
             className="object-contain"
           />
