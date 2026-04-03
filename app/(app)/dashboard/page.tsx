@@ -184,7 +184,7 @@ export default function DashboardPage() {
   const [searchResults, setSearchResults] = useState<{ symbol: string; name: string; type: string }[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchTimer = useRef<any>(null);
-  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("chart");
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("scan");
   const [traderOpen, setTraderOpen] = useState(false);
   const [traderSym, setTraderSym] = useState("AAPL");
   const [traderAsset, setTraderAsset] = useState<AssetType>("stock");
