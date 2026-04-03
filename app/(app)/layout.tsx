@@ -1,7 +1,7 @@
 // app/(app)/layout.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/app/components/Sidebar";
 import ToastProvider from "@/app/components/ToastProvider";
@@ -167,6 +167,68 @@ function LegalFooter() {
   );
 }
 
+function TopNavSearch() {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<{ symbol: string; name: string }[]>([]);
+  const [open, setOpen] = useState(false);
+  const timer = useRef<any>(null);
+
+  useEffect(() => {
+    if (timer.current) clearTimeout(timer.current);
+    const term = q.trim();
+    if (!term) { setResults([]); setOpen(false); return; }
+    timer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/market/search?q=${encodeURIComponent(term)}`);
+        const j = await res.json();
+        if (j?.ok && Array.isArray(j.results)) { setResults(j.results); setOpen(j.results.length > 0); }
+      } catch { setResults([]); }
+    }, 280);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [q]);
+
+  function pick(sym: string) {
+    const isCrypto = sym.includes("-USD") || ["BTC","ETH","SOL","XRP","DOGE","AVAX","ADA"].includes(sym.toUpperCase());
+    try {
+      window.dispatchEvent(new CustomEvent("imynted:openDetail", {
+        detail: { symbol: sym.toUpperCase(), asset: isCrypto ? "crypto" : "stock" },
+      }));
+    } catch {}
+    setQ(""); setOpen(false);
+  }
+
+  return (
+    <div className="relative shrink-0 w-[160px] md:w-[220px]">
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onFocus={() => results.length > 0 && setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 200)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && q.trim()) pick(q.trim());
+          if (e.key === "Escape") { setQ(""); setOpen(false); }
+        }}
+        placeholder="Symbol search..."
+        spellCheck={false}
+        autoComplete="off"
+        className="w-full h-7 rounded-sm border border-white/10 bg-white/[0.05] px-2.5 text-[11px] text-white/80 placeholder:text-white/25 outline-none focus:border-emerald-400/30 transition-colors"
+      />
+      {open && results.length > 0 && (
+        <div className="absolute top-full right-0 mt-0.5 z-[200] rounded-sm border border-white/15 bg-[rgba(4,10,18,0.99)] shadow-2xl w-[260px] max-h-[280px] overflow-auto">
+          {results.map((r, i) => (
+            <button key={`${r.symbol}-${i}`} type="button"
+              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-white/[0.06] transition-colors text-left"
+              onMouseDown={(e) => { e.preventDefault(); pick(r.symbol); }}>
+              <span className="text-[11px] font-bold text-emerald-300 w-[56px] shrink-0">{r.symbol}</span>
+              <span className="text-[10px] text-white/50 truncate flex-1">{r.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const TOP_NAV = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/scanner",   label: "Scanner"   },
@@ -245,6 +307,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                         </a>
                       );
                     })}
+                  </div>
+
+                  {/* Symbol search */}
+                  <div className="shrink-0 ml-2">
+                    <TopNavSearch />
                   </div>
 
                   {/* Live dot */}
