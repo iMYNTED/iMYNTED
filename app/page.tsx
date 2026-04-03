@@ -39,8 +39,8 @@ export default function HomePage() {
             height={150}
             style={{
               display: "block",
-              maskImage: "radial-gradient(ellipse 88% 86% at 50% 46%, black 50%, transparent 78%)",
-              WebkitMaskImage: "radial-gradient(ellipse 88% 86% at 50% 46%, black 50%, transparent 78%)",
+              maskImage: "radial-gradient(ellipse 96% 94% at 50% 47%, black 62%, transparent 88%)",
+              WebkitMaskImage: "radial-gradient(ellipse 96% 94% at 50% 47%, black 62%, transparent 88%)",
             }}
           />
         </div>
