@@ -5,6 +5,7 @@ import StockDetailPanel from "@/app/components/StockDetailPanel";
 
 export default function OptionsPage() {
   const [symbol, setSymbol] = useState("SPY");
+  const [panelOpen, setPanelOpen] = useState(true);
   const [q, setQ] = useState("");
   const [results, setResults] = useState<{ symbol: string; name: string }[]>([]);
   const [open, setOpen] = useState(false);
@@ -27,6 +28,7 @@ export default function OptionsPage() {
 
   function pick(sym: string) {
     setSymbol(sym.toUpperCase());
+    setPanelOpen(true);
     setQ("");
     setOpen(false);
   }
@@ -84,12 +86,14 @@ export default function OptionsPage() {
       </div>
 
       {/* StockDetailPanel — renders as portal overlay */}
-      <StockDetailPanel
-        symbol={symbol}
-        asset="stock"
-        onClose={() => {}}
-        defaultTab="options"
-      />
+      {panelOpen && (
+        <StockDetailPanel
+          symbol={symbol}
+          asset="stock"
+          onClose={() => setPanelOpen(false)}
+          defaultTab="options"
+        />
+      )}
     </div>
   );
 }
