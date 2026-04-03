@@ -32,11 +32,14 @@ export default function HomePage() {
         <Image
           src="/brand/imynted-mark-512.png"
           alt="iMYNTED"
-          width={96}
-          height={96}
+          width={110}
+          height={110}
           priority
           className="object-contain"
-          style={{ filter: "drop-shadow(0 0 24px rgba(52,211,153,0.35))" }}
+          style={{
+            mixBlendMode: "screen",
+            filter: "drop-shadow(0 0 32px rgba(52,211,153,0.55)) drop-shadow(0 0 8px rgba(52,211,153,0.3))",
+          }}
         />
         <p className="text-[13px] text-zinc-400 text-center max-w-xs leading-snug">
           The control layer above all brokers, all assets, and all markets.
@@ -49,16 +52,30 @@ export default function HomePage() {
       </div>
 
       {/* Nav tiles */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 w-full max-w-xl mb-8">
+      <div className="grid grid-cols-2 gap-3 w-full max-w-sm mb-8">
         {NAV_OPTIONS.map((n) => (
           <button
             key={n.href}
             type="button"
             onClick={() => authed ? router.push(n.href) : router.push("/login")}
-            className="flex flex-col items-start gap-1.5 rounded-sm border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-left hover:border-emerald-400/30 hover:bg-emerald-400/[0.05] transition-all group"
+            className="relative flex flex-col items-start gap-1.5 rounded-lg px-4 py-3 text-left transition-all group overflow-hidden"
+            style={{
+              background: "linear-gradient(135deg, rgba(52,211,153,0.07) 0%, rgba(0,0,0,0) 100%)",
+              border: "1px solid rgba(52,211,153,0.18)",
+              boxShadow: "inset 0 1px 0 rgba(52,211,153,0.08)",
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.border = "1px solid rgba(52,211,153,0.45)";
+              (e.currentTarget as HTMLElement).style.boxShadow = "0 0 18px rgba(52,211,153,0.15), inset 0 1px 0 rgba(52,211,153,0.15)";
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.border = "1px solid rgba(52,211,153,0.18)";
+              (e.currentTarget as HTMLElement).style.boxShadow = "inset 0 1px 0 rgba(52,211,153,0.08)";
+            }}
           >
-            <span className="text-emerald-400 text-lg leading-none font-mono">{n.icon}</span>
-            <span className="text-[13px] font-bold text-white/90 group-hover:text-white transition-colors">{n.label}</span>
+            <span className="text-emerald-400 text-lg leading-none font-mono"
+              style={{ textShadow: "0 0 8px rgba(52,211,153,0.6)" }}>{n.icon}</span>
+            <span className="text-[13px] font-bold text-white/90 group-hover:text-emerald-300 transition-colors">{n.label}</span>
             <span className="text-[10px] text-zinc-500 leading-snug">{n.desc}</span>
           </button>
         ))}
@@ -68,7 +85,11 @@ export default function HomePage() {
       {authed === false && (
         <a
           href="/login"
-          className="rounded-sm bg-emerald-400 text-black text-sm font-bold px-8 py-3 hover:bg-emerald-300 transition-colors tracking-wide"
+          className="rounded-lg text-black text-sm font-bold px-8 py-3 tracking-wide transition-all"
+          style={{
+            background: "linear-gradient(135deg, #34d399 0%, #10b981 100%)",
+            boxShadow: "0 0 24px rgba(52,211,153,0.4), 0 2px 8px rgba(0,0,0,0.4)",
+          }}
         >
           Sign In to Access
         </a>
@@ -76,7 +97,11 @@ export default function HomePage() {
       {authed === true && (
         <a
           href="/dashboard"
-          className="rounded-sm border border-emerald-400/30 text-emerald-400 text-sm font-semibold px-8 py-3 hover:bg-emerald-400/10 transition-colors tracking-wide"
+          className="rounded-lg text-emerald-400 text-sm font-semibold px-8 py-3 tracking-wide transition-all"
+          style={{
+            border: "1px solid rgba(52,211,153,0.35)",
+            boxShadow: "0 0 14px rgba(52,211,153,0.1)",
+          }}
         >
           Open Terminal →
         </a>
