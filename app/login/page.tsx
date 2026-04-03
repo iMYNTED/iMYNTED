@@ -6,10 +6,19 @@ import { supabase } from "@/lib/supabaseClient";
 
 function buildRedirectUrl(nextPath: string) {
   if (typeof window === "undefined") {
-    return `http://localhost:3004/auth/callback?next=${encodeURIComponent(nextPath)}`;
+    return `https://www.imynted.com/auth/callback?next=${encodeURIComponent(nextPath)}`;
   }
 
-  const url = new URL("/auth/callback", window.location.origin);
+  const { hostname } = window.location;
+  const isLocal =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    /^192\.168\./.test(hostname) ||
+    /^10\./.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
+
+  const base = isLocal ? window.location.origin : "https://www.imynted.com";
+  const url = new URL("/auth/callback", base);
   url.searchParams.set("next", nextPath);
   return url.toString();
 }
@@ -22,7 +31,7 @@ function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const next = useMemo(() => searchParams.get("next") || "/dashboard", [searchParams]);
+  const next = useMemo(() => searchParams.get("next") || "/", [searchParams]);
   const callbackError = useMemo(() => searchParams.get("error"), [searchParams]);
 
   const [email, setEmail] = useState("");
