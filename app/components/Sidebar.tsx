@@ -265,7 +265,7 @@ export default function Sidebar() {
   const navContent = (
     <>
       {/* logo */}
-      <div className="flex items-center justify-center w-full shrink-0">
+      <Link href="/" className="flex items-center justify-center w-full shrink-0">
         {logoOk ? (
           <img
             src="/brand/imynted-mark-512.png"
@@ -277,7 +277,7 @@ export default function Sidebar() {
         ) : (
           <span className="text-[16px] font-bold text-emerald-400 py-4">iM</span>
         )}
-      </div>
+      </Link>
 
       {/* nav */}
       <nav className="flex-1 flex flex-col items-center gap-1 pt-2">

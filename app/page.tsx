@@ -25,8 +25,7 @@ export default function HomePage() {
   }, []);
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center px-6 py-12"
-      style={{ background: "linear-gradient(135deg, #020617 0%, #050d14 55%, #020a10 100%)" }}>
+    <main className="min-h-screen flex flex-col items-center justify-center px-6 py-12 bg-black">
 
       {/* Logo + brand */}
       <div className="flex flex-col items-center gap-3 mb-10">
@@ -38,13 +37,6 @@ export default function HomePage() {
           priority
           className="object-contain"
           style={{ filter: "drop-shadow(0 0 24px rgba(52,211,153,0.35))" }}
-        />
-        <Image
-          src="/brand/imynted-lockup-transparent.png"
-          alt="iMYNTED"
-          width={200}
-          height={52}
-          className="object-contain"
         />
         <p className="text-[13px] text-zinc-400 text-center max-w-xs leading-snug">
           The control layer above all brokers, all assets, and all markets.
