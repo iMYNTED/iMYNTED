@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-import Image from "next/image";
 
 const NAV_OPTIONS = [
   { href: "/dashboard", label: "Dashboard",  desc: "Full terminal — chart, scanner, tape, L2", icon: "▦" },
@@ -29,18 +28,22 @@ export default function HomePage() {
 
       {/* Logo + brand */}
       <div className="flex flex-col items-center gap-3 mb-10">
-        <Image
-          src="/brand/imynted-mark-512.png"
-          alt="iMYNTED"
-          width={110}
-          height={110}
-          priority
-          className="object-contain"
-          style={{
-            mixBlendMode: "screen",
-            filter: "drop-shadow(0 0 32px rgba(52,211,153,0.55)) drop-shadow(0 0 8px rgba(52,211,153,0.3))",
-          }}
-        />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <div style={{
+          filter: "drop-shadow(0 0 32px rgba(52,211,153,0.6)) drop-shadow(0 0 10px rgba(52,211,153,0.35))",
+        }}>
+          <img
+            src="/brand/imynted-mark-512.png"
+            alt="iMYNTED"
+            width={150}
+            height={150}
+            style={{
+              display: "block",
+              maskImage: "radial-gradient(ellipse 88% 86% at 50% 46%, black 50%, transparent 78%)",
+              WebkitMaskImage: "radial-gradient(ellipse 88% 86% at 50% 46%, black 50%, transparent 78%)",
+            }}
+          />
+        </div>
         <p className="text-[13px] text-zinc-400 text-center max-w-xs leading-snug">
           The control layer above all brokers, all assets, and all markets.
         </p>
