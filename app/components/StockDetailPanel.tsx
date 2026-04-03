@@ -813,6 +813,7 @@ export default function StockDetailPanel({
   const priceLevels = Array.from(priceLevelMap.values()).sort((a, b) => b.price - a.price);
   const maxLevelSize = Math.max(...priceLevels.map(l => l.buy + l.sell + l.neutral), 1);
 
+  if (typeof document === "undefined") return null;
   return createPortal(
     <div
       data-panel-root=""
