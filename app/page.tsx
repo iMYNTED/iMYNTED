@@ -42,13 +42,12 @@ export default function HomePage() {
         />
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/brand/imynted-lockup.png"
+          src="/brand/imynted-lockup-transparent.png"
           alt="iMYNTED"
-          width={220}
+          width={200}
           style={{
             display: "block",
-            mixBlendMode: "screen",
-            filter: "drop-shadow(0 0 16px rgba(52,211,153,0.5)) saturate(1.2)",
+            filter: "drop-shadow(0 0 16px rgba(52,211,153,0.5))",
           }}
         />
         <p className="text-[13px] text-zinc-400 text-center max-w-xs leading-snug">
