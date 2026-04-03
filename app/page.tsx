@@ -29,21 +29,16 @@ export default function HomePage() {
       {/* Logo + brand */}
       <div className="flex flex-col items-center gap-3 mb-10">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <div style={{
-          filter: "drop-shadow(0 0 32px rgba(52,211,153,0.6)) drop-shadow(0 0 10px rgba(52,211,153,0.35))",
-        }}>
-          <img
-            src="/brand/imynted-mark-512.png"
-            alt="iMYNTED"
-            width={150}
-            height={150}
-            style={{
-              display: "block",
-              maskImage: "radial-gradient(ellipse 96% 94% at 50% 47%, black 62%, transparent 88%)",
-              WebkitMaskImage: "radial-gradient(ellipse 96% 94% at 50% 47%, black 62%, transparent 88%)",
-            }}
-          />
-        </div>
+        <img
+          src="/brand/imynted-mark-transparent.png"
+          alt="iMYNTED"
+          width={150}
+          height={150}
+          style={{
+            display: "block",
+            filter: "drop-shadow(0 0 32px rgba(52,211,153,0.6)) drop-shadow(0 0 10px rgba(52,211,153,0.35))",
+          }}
+        />
         <p className="text-[13px] text-zinc-400 text-center max-w-xs leading-snug">
           The control layer above all brokers, all assets, and all markets.
         </p>
