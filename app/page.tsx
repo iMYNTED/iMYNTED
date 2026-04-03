@@ -36,7 +36,7 @@ export default function HomePage() {
           height={220}
           style={{
             display: "block",
-            filter: "drop-shadow(0 0 60px rgba(52,211,153,0.9)) drop-shadow(0 0 30px rgba(52,211,153,0.7)) drop-shadow(0 0 10px rgba(74,222,128,0.8)) saturate(1.4) brightness(1.05)",
+            filter: "drop-shadow(0 0 20px rgba(52,211,153,0.55)) drop-shadow(0 0 6px rgba(52,211,153,0.35))",
           }}
         />
         <p className="text-[13px] text-zinc-400 text-center max-w-xs leading-snug">
