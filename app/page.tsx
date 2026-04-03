@@ -30,13 +30,25 @@ export default function HomePage() {
       <div className="flex flex-col items-center gap-3 mb-10">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/brand/imynted-mark-transparent.png"
+          src="/brand/imynted-mark-512.png"
           alt="iMYNTED"
-          width={150}
-          height={150}
+          width={220}
+          height={220}
           style={{
             display: "block",
-            filter: "drop-shadow(0 0 32px rgba(52,211,153,0.6)) drop-shadow(0 0 10px rgba(52,211,153,0.35))",
+            mixBlendMode: "screen",
+            filter: "drop-shadow(0 0 40px rgba(52,211,153,0.7)) drop-shadow(0 0 16px rgba(52,211,153,0.45)) saturate(1.3)",
+          }}
+        />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/brand/imynted-lockup.png"
+          alt="iMYNTED"
+          width={220}
+          style={{
+            display: "block",
+            mixBlendMode: "screen",
+            filter: "drop-shadow(0 0 16px rgba(52,211,153,0.5)) saturate(1.2)",
           }}
         />
         <p className="text-[13px] text-zinc-400 text-center max-w-xs leading-snug">
