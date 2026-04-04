@@ -778,6 +778,21 @@ export default function AccountsPage() {
                     className="w-full h-7 rounded-sm border border-red-400/20 bg-red-400/[0.04] text-[10px] font-bold text-red-400/70 hover:bg-red-400/[0.08] transition-colors uppercase tracking-wider">
                     Disconnect
                   </button>
+                ) : b.id === "robinhood" ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5 px-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" style={{ boxShadow: "0 0 4px rgba(251,191,36,0.7)" }} />
+                      <span className="text-[8px] font-bold text-amber-400/90 uppercase tracking-wider">Coming Soon — Official API in Beta</span>
+                    </div>
+                    <a
+                      href="https://robinhood.com/us/en/about/robinhood-api/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 w-full h-7 rounded-sm border border-amber-400/30 bg-amber-400/[0.06] text-[10px] font-bold text-amber-400/80 hover:bg-amber-400/[0.12] transition-colors uppercase tracking-wider"
+                    >
+                      Join API Waitlist ↗
+                    </a>
+                  </div>
                 ) : config ? (
                   <button onClick={() => { setCredInputs({}); setTestStatus("idle"); setTestMsg(""); setConnectingBroker(b.id); }}
                     className="w-full h-7 rounded-sm border border-emerald-400/20 bg-emerald-400/[0.04] text-[10px] font-bold text-emerald-400/80 hover:bg-emerald-400/[0.08] transition-colors uppercase tracking-wider">
