@@ -4,6 +4,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSettings } from "./SettingsContext";
+import { BottomSheet } from "./ui/BottomSheet";
 
 type AssetType = "stock" | "crypto";
 type Tab = "ticks" | "summary" | "quotes" | "options" | "profile" | "shareholders" | "sentiment";
@@ -814,24 +815,10 @@ export default function StockDetailPanel({
   const maxLevelSize = Math.max(...priceLevels.map(l => l.buy + l.sell + l.neutral), 1);
 
   if (typeof document === "undefined") return null;
-  return createPortal(
-    <div
-      data-panel-root=""
-      style={{
-        position: "fixed",
-        left: isMobile ? 0 : dragPos.x,
-        top: isMobile ? 0 : dragPos.y,
-        width: isMobile ? "100vw" : panelSize.w > 0 ? panelSize.w : "calc(100vw - 160px)",
-        height: isMobile ? "100vh" : panelSize.h > 0 ? panelSize.h : "calc(100vh - 40px)",
-        zIndex: 9999,
-        borderRadius: isMobile ? 0 : 10,
-        overflow: "hidden",
-        border: isMobile ? "none" : "1px solid rgba(52,211,153,0.10)",
-        boxShadow: isMobile ? "none" : "0 0 0 1px rgba(52,211,153,0.05), 0 32px 80px rgba(0,0,0,0.9)",
-        background: "linear-gradient(135deg, #050d14 0%, #060e18 55%, #050c12 100%)",
-        display: "flex", flexDirection: "column",
-      }}
-    >
+
+  // Panel content (shared between mobile and desktop)
+  const panelContent = (
+    <>
       {/* glow */}
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none", borderRadius: 10, background: "radial-gradient(ellipse 60% 30% at 5% 0%, rgba(52,211,153,0.09) 0%, transparent 100%)" }} />
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none", borderRadius: 10, background: "radial-gradient(ellipse 35% 25% at 95% 100%, rgba(34,211,238,0.05) 0%, transparent 100%)" }} />
@@ -840,7 +827,7 @@ export default function StockDetailPanel({
       <div
         className="relative z-10 shrink-0 flex items-center justify-between px-4 py-2 border-b border-emerald-400/[0.08] cursor-grab select-none"
         style={{ background: "linear-gradient(90deg, rgba(52,211,153,0.07) 0%, transparent 60%)" }}
-        onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd}
+        onPointerDown={!isMobile ? onDragStart : undefined} onPointerMove={!isMobile ? onDragMove : undefined} onPointerUp={!isMobile ? onDragEnd : undefined}
       >
         <div className="flex items-center gap-1.5 md:gap-2 min-w-0 overflow-hidden">
           <span className="hidden md:inline text-[10px] font-bold tracking-[0.14em] text-emerald-400/80 uppercase">iMYNTED</span>
@@ -2509,7 +2496,7 @@ export default function StockDetailPanel({
           </div>
         )}
       </div>
-      {/* Corner resize handle */}
+      {/* Corner resize handle - desktop only */}
       {!isMobile && (
         <div
           className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-30 group"
@@ -2522,6 +2509,57 @@ export default function StockDetailPanel({
           </svg>
         </div>
       )}
+    </>
+  );
+
+  // Mobile: Use BottomSheet
+  if (isMobile) {
+    return (
+      <BottomSheet
+        open={true}
+        onClose={onClose ?? (() => {})}
+        snapPoints={[0.5, 0.75, 0.95]}
+        initialSnap={1}
+        title={
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="rounded-sm border border-emerald-400/25 bg-emerald-400/[0.07] px-2 py-0.5 text-[11px] font-bold text-white tracking-wide">{symbol}</span>
+            <span className={cn("rounded-sm border px-1 py-0.5 text-[7px] font-bold uppercase tracking-wider",
+              asset === "crypto" ? "border-amber-400/25 bg-amber-400/[0.07] text-amber-300" : "border-emerald-400/20 bg-emerald-400/[0.05] text-emerald-300/70"
+            )}>{asset === "crypto" ? "CRY" : "STK"}</span>
+            <span className={cn("rounded-sm border px-1.5 py-0.5 text-[13px] font-bold tabular-nums",
+              up ? "border-emerald-400/20 bg-emerald-400/[0.05] text-emerald-400" : "border-red-400/20 bg-red-400/[0.05] text-red-400"
+            )}>{fmtPx(quote.price)}</span>
+            <span className={cn("text-[10px] font-semibold tabular-nums", chgColor)}>({fmtPct(quote.chgPct)})</span>
+          </div>
+        }
+      >
+        <div className="relative flex flex-col h-full" style={{ background: "linear-gradient(135deg, #050d14 0%, #060e18 55%, #050c12 100%)" }}>
+          {panelContent}
+        </div>
+      </BottomSheet>
+    );
+  }
+
+  // Desktop: Use createPortal with draggable panel
+  return createPortal(
+    <div
+      data-panel-root=""
+      style={{
+        position: "fixed",
+        left: dragPos.x,
+        top: dragPos.y,
+        width: panelSize.w > 0 ? panelSize.w : "calc(100vw - 160px)",
+        height: panelSize.h > 0 ? panelSize.h : "calc(100vh - 40px)",
+        zIndex: 9999,
+        borderRadius: 10,
+        overflow: "hidden",
+        border: "1px solid rgba(52,211,153,0.10)",
+        boxShadow: "0 0 0 1px rgba(52,211,153,0.05), 0 32px 80px rgba(0,0,0,0.9)",
+        background: "linear-gradient(135deg, #050d14 0%, #060e18 55%, #050c12 100%)",
+        display: "flex", flexDirection: "column",
+      }}
+    >
+      {panelContent}
     </div>,
     document.body
   );

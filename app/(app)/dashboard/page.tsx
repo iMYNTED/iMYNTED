@@ -13,10 +13,13 @@ import SymbolHeader from "@/app/components/SymbolHeader";
 import ChartPanel from "../../components/ChartPanel";
 import TraderPanel from "@/app/components/TraderPanelV2";
 import StockDetailPanel from "@/app/components/StockDetailPanel";
+import { SwipeContainer } from "@/app/components/SwipeContainer";
 
 type Workspace = "full" | "news" | "l2" | "tape" | "trader";
 type AssetType = "stock" | "crypto";
 type MobilePanel = "chart" | "l2" | "tape" | "scan" | "positions" | "news";
+
+const MOBILE_PANELS: MobilePanel[] = ["scan", "chart", "l2", "tape", "positions", "news"];
 
 function cn(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -533,7 +536,20 @@ export default function DashboardPage() {
 
       {/* ── MOBILE: single-panel view with bottom tabs ── */}
       <div className="flex-1 min-h-0 flex flex-col lg:hidden overflow-hidden">
-        <div className="flex-1 min-h-0 overflow-auto">
+        <SwipeContainer
+          currentIndex={MOBILE_PANELS.indexOf(mobilePanel)}
+          totalCount={MOBILE_PANELS.length}
+          onSwipeLeft={() => {
+            const idx = MOBILE_PANELS.indexOf(mobilePanel);
+            if (idx < MOBILE_PANELS.length - 1) setMobilePanel(MOBILE_PANELS[idx + 1]);
+          }}
+          onSwipeRight={() => {
+            const idx = MOBILE_PANELS.indexOf(mobilePanel);
+            if (idx > 0) setMobilePanel(MOBILE_PANELS[idx - 1]);
+          }}
+          className="flex-1 min-h-0 overflow-auto"
+          showDots={false}
+        >
           {mobilePanel === "chart" && (
             <div className="h-full min-h-0 p-1">
               <Card title={`Chart — ${sym}`} className="h-full min-h-[400px]">
@@ -581,7 +597,7 @@ export default function DashboardPage() {
               </Card>
             </div>
           )}
-        </div>
+        </SwipeContainer>
 
         {/* Mobile bottom tab bar */}
         <div className="shrink-0 border-t border-emerald-400/[0.12] flex items-center justify-around"
