@@ -2,18 +2,24 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 const PUBLIC_PATHS = ["/", "/login", "/auth/callback", "/terms", "/privacy"];
+// API routes that don't require auth (invite check is self-contained)
+const PUBLIC_API_PATHS = ["/api/invite"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow public paths, static assets, and API routes
+  // Allow static assets and public pages
   if (
     PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + "/")) ||
-    pathname.startsWith("/api/") ||
     pathname.startsWith("/_next/") ||
     pathname.startsWith("/brand/") ||
     pathname.includes(".")
   ) {
+    return NextResponse.next();
+  }
+
+  // Allow public API routes
+  if (PUBLIC_API_PATHS.some(p => pathname === p || pathname.startsWith(p + "/"))) {
     return NextResponse.next();
   }
 
@@ -37,6 +43,10 @@ export async function middleware(request: NextRequest) {
   const { data: { session } } = await supabase.auth.getSession();
 
   if (!session) {
+    // API routes → 401 JSON, not a redirect
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
