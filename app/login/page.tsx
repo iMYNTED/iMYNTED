@@ -50,6 +50,11 @@ function LoginInner() {
 
     const lower = callbackError.toLowerCase();
 
+    if (callbackError === "not_invited") {
+      setStatus("Access denied. A valid invite code is required.");
+      return;
+    }
+
     if (lower.includes("code verifier") || lower.includes("no_session")) {
       setStatus(
         "Session mismatch. Open the magic link in the SAME browser you requested it from."
@@ -121,7 +126,7 @@ function LoginInner() {
       const check = await fetch("/api/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: inviteCode }),
+        body: JSON.stringify({ code: inviteCode, email: cleanEmail }),
       });
       if (!check.ok) {
         const { error } = await check.json();

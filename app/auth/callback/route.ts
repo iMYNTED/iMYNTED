@@ -1,6 +1,7 @@
 // app/auth/callback/route.ts
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
@@ -57,6 +58,26 @@ export async function GET(request: NextRequest) {
       error?.message || "no_session_returned"
     );
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Server-side invite enforcement: block users without invited flag
+  const user = data.session.user;
+  if (!user.user_metadata?.invited) {
+    // Sign out the session server-side using service role
+    const admin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    await admin.auth.admin.signOut(data.session.access_token);
+
+    // Clear the session cookies
+    const loginUrl = new URL("/login", requestUrl.origin);
+    loginUrl.searchParams.set("error", "not_invited");
+    const denied = NextResponse.redirect(loginUrl);
+    for (const cookie of response.cookies.getAll()) {
+      denied.cookies.delete(cookie.name);
+    }
+    return denied;
   }
 
   return response;
