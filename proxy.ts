@@ -2,7 +2,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 const PUBLIC_PATHS = ["/", "/login", "/auth/callback", "/terms", "/privacy"];
-const PUBLIC_API_PATHS = ["/api/invite"];
+const PUBLIC_API_PATHS = [
+  "/api/invite",
+  "/api/market",
+  "/api/crypto",
+  "/api/scanner",
+  "/api/news",
+];
 
 // ── Rate limiting ──
 // In-memory store: key → array of timestamps
